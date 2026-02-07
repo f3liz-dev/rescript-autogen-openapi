@@ -1,0 +1,44 @@
+{
+  "name": "rescript-codegen-openapi",
+  "version": "0.1.0",
+  "description": "Generate ReScript code with Sury schemas from OpenAPI 3.1 specs. Supports multiple forks with diff/merge capabilities.",
+  "keywords": [
+    "rescript",
+    "openapi",
+    "codegen",
+    "sury",
+    "schema",
+    "misskey",
+    "api",
+    "generator"
+  ],
+  "author": "",
+  "license": "MPL-2.0",
+  "files": [
+    "src/**/*.res",
+    "lib/es6/**/*.mjs",
+    "rescript.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rescript",
+    "clean": "rescript clean",
+    "watch": "rescript build -w",
+    "test": "node --test"
+  },
+  "main": "lib/es6/src/Codegen.mjs",
+  "type": "module",
+  "dependencies": {
+    "@readme/openapi-parser": "^5.5.0",
+    "@std/path": "npm:@jsr/std__path@^1.1.4",
+    "@std/text": "npm:@jsr/std__text@^1.0.17",
+    "sury": "11.0.0-alpha.4"
+  },
+  "devDependencies": {
+    "rescript": "^12.1.0"
+  },
+  "peerDependencies": {
+    "rescript": "^12.0.0"
+  }
+}

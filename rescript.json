@@ -1,0 +1,20 @@
+{
+  "name": "rescript-codegen-openapi",
+  "sources": [
+    {
+      "dir": "src",
+      "subdirs": true
+    }
+  ],
+  "package-specs": [
+    {
+      "module": "esmodule",
+      "in-source": false
+    }
+  ],
+  "suffix": ".mjs",
+  "dependencies": [],
+  "warnings": {
+    "number": "-44-102"
+  }
+}
