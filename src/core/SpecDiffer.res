@@ -151,20 +151,20 @@ let compareEndpointLists = (
 
   // Find added endpoints (in fork but not in base)
   let added = forkKeys
-    ->Set.difference(baseKeys)
     ->Set.toArray
+    ->Array.filter(key => !(baseKeys->Set.has(key)))
     ->Array.filterMap(key => Dict.get(forkMap, key))
 
   // Find removed endpoints (in base but not in fork)
   let removed = baseKeys
-    ->Set.difference(forkKeys)
     ->Set.toArray
+    ->Array.filter(key => !(forkKeys->Set.has(key)))
     ->Array.filterMap(key => Dict.get(baseMap, key))
 
   // Find modified endpoints (in both but different)
   let modified = baseKeys
-    ->Set.intersection(forkKeys)
     ->Set.toArray
+    ->Array.filter(key => forkKeys->Set.has(key))
     ->Array.filterMap(key => {
       switch (Dict.get(baseMap, key), Dict.get(forkMap, key)) {
       | (Some(baseEp), Some(forkEp)) => compareEndpoints(baseEp, forkEp)
@@ -190,18 +190,18 @@ let compareComponentSchemas = (
 
       // Added schemas
       let added = forkKeys
-        ->Set.difference(baseKeys)
         ->Set.toArray
+        ->Array.filter(key => !(baseKeys->Set.has(key)))
 
       // Removed schemas
       let removed = baseKeys
-        ->Set.difference(forkKeys)
         ->Set.toArray
+        ->Array.filter(key => !(forkKeys->Set.has(key)))
 
       // Modified schemas
       let modified = baseKeys
-        ->Set.intersection(forkKeys)
         ->Set.toArray
+        ->Array.filter(key => forkKeys->Set.has(key))
         ->Array.filterMap(name => {
           switch (Dict.get(base, name), Dict.get(fork, name)) {
           | (Some(baseSchema), Some(forkSchema)) =>
