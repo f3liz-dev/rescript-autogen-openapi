@@ -1,6 +1,6 @@
-# rescript-codegen-openapi Examples
+# @f3liz/rescript-autogen-openapi Examples
 
-This directory contains examples demonstrating the capabilities of `rescript-codegen-openapi`.
+This directory contains examples demonstrating the capabilities of `@f3liz/rescript-autogen-openapi`.
 
 ## Core Capabilities
 

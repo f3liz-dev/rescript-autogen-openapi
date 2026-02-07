@@ -1,5 +1,5 @@
 {
-  "name": "rescript-codegen-openapi",
+  "name": "@f3liz/rescript-autogen-openapi",
   "version": "0.1.0",
   "description": "Generate ReScript code with Sury schemas from OpenAPI 3.1 specs. Supports multiple forks with diff/merge capabilities.",
   "keywords": [

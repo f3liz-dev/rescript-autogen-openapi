@@ -1,5 +1,5 @@
 {
-  "name": "rescript-codegen-openapi",
+  "name": "@f3liz/rescript-autogen-openapi",
   "sources": [
     {
       "dir": "src",

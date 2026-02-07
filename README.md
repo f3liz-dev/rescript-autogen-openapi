@@ -1,4 +1,4 @@
-# rescript-codegen-openapi
+# @f3liz/rescript-autogen-openapi
 
 Generate ReScript code with [Sury](https://github.com/DZakh/rescript-schema) schemas from OpenAPI 3.1 specs. Supports multiple forks with intelligent diff/merge capabilities.
 
@@ -14,7 +14,7 @@ Generate ReScript code with [Sury](https://github.com/DZakh/rescript-schema) sch
 ## 📦 Installation
 
 ```bash
-npm install rescript-codegen-openapi sury @readme/openapi-parser
+npm install @f3liz/rescript-autogen-openapi sury @readme/openapi-parser
 ```
 
 Ensure you have `rescript` (^12.0.0) installed.
@@ -24,7 +24,7 @@ Ensure you have `rescript` (^12.0.0) installed.
 ### Library API
 
 ```javascript
-import { generate } from 'rescript-codegen-openapi';
+import { generate } from '@f3liz/rescript-autogen-openapi';
 
 const config = {
   specPath: 'https://misskey.io/api.json',

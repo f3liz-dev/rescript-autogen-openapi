@@ -17,4 +17,4 @@ The shared base contains 3 endpoints and 1 schemas.
 extended adds 1 endpoints and 1 schemas.
 
 ---
-*Generated on 2026-02-07T07:57:17.842Z*
+*Generated on 2026-02-07T08:13:07.238Z*
