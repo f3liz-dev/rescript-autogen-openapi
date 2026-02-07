@@ -3,10 +3,10 @@
 // CodegenUtils.res - Utility functions for code generation
 
 // Convert a string to PascalCase
-@module("@std/text") external toPascalCase: string => string = "toPascalCase"
+@module("js-convert-case") external toPascalCase: string => string = "toPascalCase"
 
 // Convert a string to camelCase
-@module("@std/text") external toCamelCase: string => string = "toCamelCase"
+@module("js-convert-case") external toCamelCase: string => string = "toCamelCase"
 
 // Sanitize identifier (remove special characters, ensure valid ReScript identifier)
 let sanitizeIdentifier = (str: string): string =>

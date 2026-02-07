@@ -4,8 +4,8 @@
 
 @module("fs") external mkdirSync: (string, {"recursive": bool}) => unit = "mkdirSync"
 @module("fs") external writeFileSync: (string, string, string) => unit = "writeFileSync"
-@module("@std/path") external join: (string, string) => string = "join"
-@module("@std/path") external dirname: string => string = "dirname"
+@module("pathe") external join: (string, string) => string = "join"
+@module("pathe") external dirname: string => string = "dirname"
 
 // Represents a file to be written
 type fileToWrite = {
