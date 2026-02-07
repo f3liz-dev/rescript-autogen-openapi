@@ -1,6 +1,6 @@
 {
   "name": "@f3liz/rescript-autogen-openapi",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Generate ReScript code with Sury schemas from OpenAPI 3.1 specs. Supports multiple forks with diff/merge capabilities.",
   "keywords": [
     "rescript",
@@ -12,7 +12,7 @@
     "api",
     "generator"
   ],
-  "author": "",
+  "author": "NyanRus",
   "license": "MPL-2.0",
   "files": [
     "src/**/*.res",
@@ -21,6 +21,9 @@
     "README.md",
     "LICENSE"
   ],
+  "repository": {
+    "url": "https://github.com/f3liz-dev/rescript-autogen-openapi"
+  },
   "scripts": {
     "build": "rescript",
     "clean": "rescript clean",
