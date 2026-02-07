@@ -99,12 +99,12 @@ The examples use the following local specs:
 ---
 
 ### Example 4: Real-World Multi-Fork (Misskey & Cherrypick)
-**File**: `04-misskey-multi-fork.mjs`
+**File**: `04-misskey-multi-fork-manual.mjs`
 
 A heavy-duty example using real-world specs with 400+ endpoints.
 
 ```bash
-node examples/04-misskey-multi-fork.mjs
+node examples/04-misskey-multi-fork-manual.mjs
 ```
 
 **Functionality:**

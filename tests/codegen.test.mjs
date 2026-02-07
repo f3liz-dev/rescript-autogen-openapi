@@ -56,33 +56,4 @@ test('Codegen Integration', async (t) => {
     assert.ok(existsSync(join(outputDir, 'petstore-base/api/PetstoreBasePets.res')));
     assert.ok(existsSync(join(outputDir, 'extended/api/ExtendedStore.res')));
   });
-
-  await t.test('Real-World Multi-Fork: Misskey & Cherrypick (SharedBase)', { timeout: 300000 }, async () => {
-    const outputDir = join(testOutputDir, 'misskey-multi-fork');
-    
-    const result = await generateFromUrl(
-      'https://misskey.io/api.json',
-      outputDir,
-      {
-        outputDir,
-        strategy: 'SharedBase',
-        baseInstanceName: 'misskey',
-        baseModulePrefix: 'Misskey',
-        generateDiffReport: true,
-        forkSpecs: [
-          {
-            name: 'cherrypick',
-            specPath: 'https://kokonect.link/api.json',
-          }
-        ]
-      }
-    );
-
-    assert.equal(result.TAG, 'Ok', 'Real-world generation should succeed');
-    
-    // Check some known modules
-    assert.ok(existsSync(join(outputDir, 'misskey/api/MisskeyNotes.res')), 'Shared Notes module should exist');
-    assert.ok(existsSync(join(outputDir, 'cherrypick/api/CherrypickAntennas.res')), 'Cherrypick extension module should exist');
-    assert.ok(existsSync(join(outputDir, 'cherrypick-diff.md')), 'Diff report should exist');
-  });
 });
