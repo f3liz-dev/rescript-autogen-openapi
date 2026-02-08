@@ -66,40 +66,56 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
       | NullLiteral => "S.literal(null)"
       }
     | Union(types) =>
-      let (hasArray, hasNonArray, arrayItemType, nonArrayType) = types->Array.reduce(
-        (false, false, None, None),
-        ((hArr, hNonArr, arrItem, nonArr), t) =>
-          switch t {
-          | Array({items}) => (true, hNonArr, Some(items), nonArr)
-          | _ => (hArr, true, arrItem, Some(t))
-          },
+      // Separate Null from non-null members (handles OpenAPI 3.1 nullable via oneOf)
+      let nonNullTypes = types->Array.filter(t =>
+        switch t {
+        | Null | Literal(NullLiteral) => false
+        | _ => true
+        }
       )
-      if (
-        hasArray &&
-        hasNonArray &&
-        SchemaIR.equals(Option.getOr(arrayItemType, Unknown), Option.getOr(nonArrayType, Unknown))
-      ) {
-        `S.array(${recurse(Option.getOr(arrayItemType, Unknown))})`
-      } else if (
-        types->Array.every(t =>
-          switch t {
-          | Literal(StringLiteral(_)) => true
-          | _ => false
-          }
-        ) &&
-        Array.length(types) > 0 &&
-        Array.length(types) <= 50
-      ) {
-        `S.union([${types->Array.map(recurse)->Array.join(", ")}])`
+      let hasNull = Array.length(nonNullTypes) < Array.length(types)
+
+      // If the union is just [T, null], treat as nullable
+      if hasNull && Array.length(nonNullTypes) == 1 {
+        `S.nullableAsOption(${recurse(nonNullTypes->Array.getUnsafe(0))})`
       } else {
-        addWarning(
-          ctx,
-          ComplexUnionSimplified({
-            location: ctx.path,
-            types: types->Array.map(SchemaIR.toString)->Array.join(" | "),
-          }),
+        let effectiveTypes = hasNull ? nonNullTypes : types
+
+        let (hasArray, hasNonArray, arrayItemType, nonArrayType) = effectiveTypes->Array.reduce(
+          (false, false, None, None),
+          ((hArr, hNonArr, arrItem, nonArr), t) =>
+            switch t {
+            | Array({items}) => (true, hNonArr, Some(items), nonArr)
+            | _ => (hArr, true, arrItem, Some(t))
+            },
         )
-        "S.json"
+
+        let result = if (
+          hasArray &&
+          hasNonArray &&
+          Array.length(effectiveTypes) == 2 &&
+          SchemaIR.equals(Option.getOr(arrayItemType, Unknown), Option.getOr(nonArrayType, Unknown))
+        ) {
+          `S.array(${recurse(Option.getOr(arrayItemType, Unknown))})`
+        } else if (
+          effectiveTypes->Array.every(t =>
+            switch t {
+            | Literal(StringLiteral(_)) => true
+            | _ => false
+            }
+          ) &&
+          Array.length(effectiveTypes) > 0 &&
+          Array.length(effectiveTypes) <= 50
+        ) {
+          `S.union([${effectiveTypes->Array.map(recurse)->Array.join(", ")}])`
+        } else if Array.length(effectiveTypes) > 0 {
+          // Generate S.union for mixed-type unions
+          `S.union([${effectiveTypes->Array.map(recurse)->Array.join(", ")}])`
+        } else {
+          "S.json"
+        }
+
+        hasNull ? `S.nullableAsOption(${result})` : result
       }
     | Intersection(types) =>
       if types->Array.every(t =>
@@ -110,11 +126,47 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
       ) && Array.length(types) > 0 {
         recurse(types->Array.get(Array.length(types) - 1)->Option.getOr(Unknown))
       } else {
-        addWarning(
-          ctx,
-          IntersectionNotFullySupported({location: ctx.path, note: "Complex intersection"}),
+        // Try to merge all Object types in the intersection
+        let (objectProps, nonObjectTypes) = types->Array.reduce(
+          ([], []),
+          ((props, nonObj), t) =>
+            switch t {
+            | Object({properties}) => (Array.concat(props, properties), nonObj)
+            | _ => (props, Array.concat(nonObj, [t]))
+            },
         )
-        "S.json"
+        if Array.length(objectProps) > 0 && Array.length(nonObjectTypes) == 0 {
+          // All objects: merge properties into single S.object
+          let fields =
+            objectProps
+            ->Array.map(((name, fieldType, isRequired)) => {
+              let schemaCode = recurse(fieldType)
+              let camelName = name->CodegenUtils.toCamelCase->CodegenUtils.escapeKeyword
+              isRequired
+                ? `    ${camelName}: s.field("${name}", ${schemaCode}),`
+                : `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+            })
+            ->Array.join("\n")
+          `S.object(s => {\n${fields}\n  })`
+        } else if Array.length(nonObjectTypes) > 0 && Array.length(objectProps) == 0 {
+          recurse(types->Array.get(Array.length(types) - 1)->Option.getOr(Unknown))
+        } else {
+          addWarning(
+            ctx,
+            IntersectionNotFullySupported({location: ctx.path, note: "Mixed object/non-object intersection"}),
+          )
+          let fields =
+            objectProps
+            ->Array.map(((name, fieldType, isRequired)) => {
+              let schemaCode = recurse(fieldType)
+              let camelName = name->CodegenUtils.toCamelCase->CodegenUtils.escapeKeyword
+              isRequired
+                ? `    ${camelName}: s.field("${name}", ${schemaCode}),`
+                : `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+            })
+            ->Array.join("\n")
+          `S.object(s => {\n${fields}\n  })`
+        }
       }
     | Reference(ref) =>
       let schemaPath = switch ctx.availableSchemas {

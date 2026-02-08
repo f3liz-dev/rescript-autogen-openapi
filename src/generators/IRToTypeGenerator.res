@@ -48,54 +48,89 @@ let rec generateTypeWithContext = (~ctx: GenerationContext.t, ~depth=0, irType: 
       | NullLiteral => "unit"
       }
     | Union(types) =>
-      // Attempt to simplify common union patterns
-      let (hasArray, hasNonArray, arrayItemType, nonArrayType) = types->Array.reduce(
-        (false, false, None, None),
-        ((hArr, hNonArr, arrItem, nonArr), t) =>
-          switch t {
-          | Array({items}) => (true, hNonArr, Some(items), nonArr)
-          | _ => (hArr, true, arrItem, Some(t))
-          },
+      // Separate Null from non-null members (handles OpenAPI 3.1 nullable via oneOf)
+      let nonNullTypes = types->Array.filter(t =>
+        switch t {
+        | Null | Literal(NullLiteral) => false
+        | _ => true
+        }
       )
+      let hasNull = Array.length(nonNullTypes) < Array.length(types)
 
-      if (
-        hasArray &&
-        hasNonArray &&
-        SchemaIR.equals(Option.getOr(arrayItemType, Unknown), Option.getOr(nonArrayType, Unknown))
-      ) {
-        `array<${recurse(Option.getOr(arrayItemType, Unknown))}>`
-      } else if (
-        types->Array.every(t =>
-          switch t {
-          | Literal(StringLiteral(_)) => true
-          | _ => false
-          }
-        ) &&
-        Array.length(types) > 0 &&
-        Array.length(types) <= 50
-      ) {
-        let variants =
-          types
-          ->Array.map(t =>
-            switch t {
-            | Literal(StringLiteral(s)) => `#${CodegenUtils.toPascalCase(s)}`
-            | _ => "#Unknown"
-            }
-          )
-          ->Array.join(" | ")
-        `[${variants}]`
+      // If the union is just [T, null], treat as option<T>
+      if hasNull && Array.length(nonNullTypes) == 1 {
+        let inner = recurse(nonNullTypes->Array.getUnsafe(0))
+        `option<${inner}>`
       } else {
-        addWarning(
-          ctx,
-          ComplexUnionSimplified({
-            location: ctx.path,
-            types: types->Array.map(SchemaIR.toString)->Array.join(" | "),
-          }),
+        // Work with the non-null types (re-wrap in option at the end if hasNull)
+        let effectiveTypes = hasNull ? nonNullTypes : types
+
+        // Attempt to simplify common union patterns
+        let (hasArray, hasNonArray, arrayItemType, nonArrayType) = effectiveTypes->Array.reduce(
+          (false, false, None, None),
+          ((hArr, hNonArr, arrItem, nonArr), t) =>
+            switch t {
+            | Array({items}) => (true, hNonArr, Some(items), nonArr)
+            | _ => (hArr, true, arrItem, Some(t))
+            },
         )
-        "JSON.t"
+
+        let result = if (
+          hasArray &&
+          hasNonArray &&
+          Array.length(effectiveTypes) == 2 &&
+          SchemaIR.equals(Option.getOr(arrayItemType, Unknown), Option.getOr(nonArrayType, Unknown))
+        ) {
+          `array<${recurse(Option.getOr(arrayItemType, Unknown))}>`
+        } else if (
+          effectiveTypes->Array.every(t =>
+            switch t {
+            | Literal(StringLiteral(_)) => true
+            | _ => false
+            }
+          ) &&
+          Array.length(effectiveTypes) > 0 &&
+          Array.length(effectiveTypes) <= 50
+        ) {
+          let variants =
+            effectiveTypes
+            ->Array.map(t =>
+              switch t {
+              | Literal(StringLiteral(s)) => `#${CodegenUtils.toPascalCase(s)}`
+              | _ => "#Unknown"
+              }
+            )
+            ->Array.join(" | ")
+          `[${variants}]`
+        } else if Array.length(effectiveTypes) > 0 {
+          // Generate @unboxed variant for mixed-type unions
+          let hasPrimitives = ref(false)
+          let variantCases = effectiveTypes->Array.mapWithIndex((t, i) => {
+            let (tag, typeStr) = switch t {
+            | String(_) => { hasPrimitives := true; ("String", "string") }
+            | Number(_) => { hasPrimitives := true; ("Float", "float") }
+            | Integer(_) => { hasPrimitives := true; ("Int", "int") }
+            | Boolean => { hasPrimitives := true; ("Bool", "bool") }
+            | Array({items}) => ("Array", `array<${recurse(items)}>`)
+            | Object(_) => ("Object", recurse(t))
+            | Reference(ref) => {
+                let name = ref->String.split("/")->Array.get(ref->String.split("/")->Array.length - 1)->Option.getOr("")
+                (CodegenUtils.toPascalCase(name), recurse(t))
+              }
+            | _ => (`V${Int.toString(i)}`, recurse(t))
+            }
+            `  | ${tag}(${typeStr})`
+          })
+          let unboxedAttr = hasPrimitives.contents ? "@unboxed " : ""
+          `${unboxedAttr}[\n${variantCases->Array.join("\n")}\n]`
+        } else {
+          "JSON.t"
+        }
+
+        hasNull ? `option<${result}>` : result
       }
     | Intersection(types) =>
-      // Basic support for intersections by picking the last reference or falling back
+      // Support for intersections: merge object properties or pick last reference
       if types->Array.every(t =>
         switch t {
         | Reference(_) => true
@@ -104,11 +139,51 @@ let rec generateTypeWithContext = (~ctx: GenerationContext.t, ~depth=0, irType: 
       ) && Array.length(types) > 0 {
         recurse(types->Array.get(Array.length(types) - 1)->Option.getOr(Unknown))
       } else {
-        addWarning(
-          ctx,
-          IntersectionNotFullySupported({location: ctx.path, note: "Complex intersection"}),
+        // Try to merge all Object types in the intersection
+        let (objectProps, nonObjectTypes) = types->Array.reduce(
+          ([], []),
+          ((props, nonObj), t) =>
+            switch t {
+            | Object({properties}) => (Array.concat(props, properties), nonObj)
+            | _ => (props, Array.concat(nonObj, [t]))
+            },
         )
-        "JSON.t"
+        if Array.length(objectProps) > 0 && Array.length(nonObjectTypes) == 0 {
+          // All objects: merge properties
+          let fields =
+            objectProps
+            ->Array.map(((name, fieldType, isRequired)) => {
+              let typeCode = recurse(fieldType)
+              let finalType = isRequired ? typeCode : `option<${typeCode}>`
+              let camelName = name->CodegenUtils.toCamelCase
+              let escapedName = camelName->CodegenUtils.escapeKeyword
+              let aliasAnnotation = escapedName != name ? `@as("${name}") ` : ""
+              `  ${aliasAnnotation}${escapedName}: ${finalType},`
+            })
+            ->Array.join("\n")
+          `{\n${fields}\n}`
+        } else if Array.length(nonObjectTypes) > 0 && Array.length(objectProps) == 0 {
+          // No objects: pick last type as best effort
+          recurse(types->Array.get(Array.length(types) - 1)->Option.getOr(Unknown))
+        } else {
+          addWarning(
+            ctx,
+            IntersectionNotFullySupported({location: ctx.path, note: "Mixed object/non-object intersection"}),
+          )
+          // Merge what we can, ignore non-object parts
+          let fields =
+            objectProps
+            ->Array.map(((name, fieldType, isRequired)) => {
+              let typeCode = recurse(fieldType)
+              let finalType = isRequired ? typeCode : `option<${typeCode}>`
+              let camelName = name->CodegenUtils.toCamelCase
+              let escapedName = camelName->CodegenUtils.escapeKeyword
+              let aliasAnnotation = escapedName != name ? `@as("${name}") ` : ""
+              `  ${aliasAnnotation}${escapedName}: ${finalType},`
+            })
+            ->Array.join("\n")
+          `{\n${fields}\n}`
+        }
       }
     | Option(inner) => `option<${recurse(inner)}>`
     | Reference(ref) =>
