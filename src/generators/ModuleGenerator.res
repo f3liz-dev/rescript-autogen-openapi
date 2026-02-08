@@ -8,11 +8,12 @@ let generateSchemaCodeForDict = (schemaDict: dict<jsonSchema>) =>
   ->Array.toSorted(((nameA, _), (nameB, _)) => String.compare(nameA, nameB))
   ->Array.flatMap(((name, schema)) => {
     let (ir, _) = SchemaIRParser.parseJsonSchema(schema)
-    let (typeCode, _) = IRToTypeGenerator.generateNamedType(
+    let (typeCode, _, extractedTypes) = IRToTypeGenerator.generateNamedType(
       ~namedSchema={name: name, description: schema.description, type_: ir},
     )
     let (schemaCode, _) = IRToSuryGenerator.generateNamedSchema(
       ~namedSchema={name: `${name}Schema`, description: schema.description, type_: ir},
+      ~extractedTypes,
     )
     [typeCode->CodegenUtils.indent(2), schemaCode->CodegenUtils.indent(2), ""]
   })

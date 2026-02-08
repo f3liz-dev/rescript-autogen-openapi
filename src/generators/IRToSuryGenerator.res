@@ -16,13 +16,27 @@ let applyConstraints = (base, min, max, toString) => {
   }
 }
 
-let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType: SchemaIR.irType): string => {
+// When extractedTypeMap is provided, complex inline types reference extracted schemas instead of regenerating
+let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, ~extractedTypeMap: option<array<GenerationContext.extractedType>>=?, irType: SchemaIR.irType): string => {
   // We keep a high depth limit just to prevent infinite recursion on circular schemas that escaped IRBuilder
   if depth > 100 {
     addWarning(ctx, DepthLimitReached({depth, path: ctx.path}))
     "S.json"
   } else {
-    let recurse = nextIrType => generateSchemaWithContext(~ctx, ~depth=depth + 1, nextIrType)
+    let recurse = nextIrType => generateSchemaWithContext(~ctx, ~depth=depth + 1, ~extractedTypeMap?, nextIrType)
+
+    // Check if this irType was extracted — if so, reference the schema by name
+    let foundExtracted = switch extractedTypeMap {
+    | Some(extracted) =>
+      extracted->Array.find(({irType: extractedIr}: GenerationContext.extractedType) =>
+        SchemaIR.equals(extractedIr, irType)
+      )
+    | None => None
+    }
+
+    switch foundExtracted {
+    | Some({typeName}) => `${typeName}Schema`
+    | None =>
 
     switch irType {
     | String({constraints: c}) =>
@@ -43,7 +57,7 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
       if Array.length(properties) == 0 {
         switch additionalProperties {
         | Some(valueType) => `S.dict(${recurse(valueType)})`
-        | None => "S.json"
+        | None => "S.dict(S.json)"
         }
       } else {
         let fields =
@@ -51,9 +65,18 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
           ->Array.map(((name, fieldType, isRequired)) => {
             let schemaCode = recurse(fieldType)
             let camelName = name->CodegenUtils.toCamelCase->CodegenUtils.escapeKeyword
-            isRequired
-              ? `    ${camelName}: s.field("${name}", ${schemaCode}),`
-              : `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+            let alreadyNullable = String.startsWith(schemaCode, "S.nullableAsOption(") || switch fieldType {
+              | Option(_) => true
+              | Union(types) => types->Array.some(t => switch t { | Null | Literal(NullLiteral) => true | _ => false })
+              | _ => false
+            }
+            if isRequired {
+              `    ${camelName}: s.field("${name}", ${schemaCode}),`
+            } else if alreadyNullable {
+              `    ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
+            } else {
+              `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+            }
           })
           ->Array.join("\n")
         `S.object(s => {\n${fields}\n  })`
@@ -109,8 +132,68 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
         ) {
           `S.union([${effectiveTypes->Array.map(recurse)->Array.join(", ")}])`
         } else if Array.length(effectiveTypes) > 0 {
-          // Generate S.union for mixed-type unions
-          `S.union([${effectiveTypes->Array.map(recurse)->Array.join(", ")}])`
+          // Check if @unboxed variant is valid (same logic as type generator)
+          let canUnbox = {
+            let runtimeKinds: Dict.t<int> = Dict.make()
+            effectiveTypes->Array.forEach(t => {
+              let kind = switch t {
+              | Boolean | Literal(BooleanLiteral(_)) => "boolean"
+              | String(_) | Literal(StringLiteral(_)) => "string"
+              | Number(_) | Integer(_) | Literal(NumberLiteral(_)) => "number"
+              | Array(_) => "array"
+              | Object(_) | Reference(_) | Intersection(_) => "object"
+              | Null | Literal(NullLiteral) => "null"
+              | _ => "unknown"
+              }
+              let count = runtimeKinds->Dict.get(kind)->Option.getOr(0)
+              runtimeKinds->Dict.set(kind, count + 1)
+            })
+            Dict.valuesToArray(runtimeKinds)->Array.every(count => count <= 1)
+          }
+          
+          if canUnbox {
+            // @unboxed variant with S.union + S.shape
+            let rawNames = effectiveTypes->Array.map(CodegenUtils.variantConstructorName)
+            let names = CodegenUtils.deduplicateNames(rawNames)
+            
+            let branches = effectiveTypes->Array.mapWithIndex((memberType, i) => {
+              let constructorName = names->Array.getUnsafe(i)
+              switch memberType {
+              | Object({properties, additionalProperties}) =>
+                if Array.length(properties) == 0 {
+                  switch additionalProperties {
+                  | Some(valueType) => `S.dict(${recurse(valueType)})->S.shape(v => ${constructorName}(v))`
+                  | None => `S.dict(S.json)->S.shape(v => ${constructorName}(v))`
+                  }
+                } else {
+                  let fields = properties->Array.map(((name, fieldType, isRequired)) => {
+                    let schemaCode = recurse(fieldType)
+                    let camelName = name->CodegenUtils.toCamelCase->CodegenUtils.escapeKeyword
+                    let alreadyNullable = String.startsWith(schemaCode, "S.nullableAsOption(") || switch fieldType {
+                      | Option(_) => true
+                      | Union(unionTypes) => unionTypes->Array.some(t => switch t { | Null | Literal(NullLiteral) => true | _ => false })
+                      | _ => false
+                    }
+                    if isRequired {
+                      `      ${camelName}: s.field("${name}", ${schemaCode}),`
+                    } else if alreadyNullable {
+                      `      ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
+                    } else {
+                      `      ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+                    }
+                  })->Array.join("\n")
+                  `S.object(s => ${constructorName}({\n${fields}\n    }))`
+                }
+              | _ =>
+                let innerSchema = recurse(memberType)
+                `${innerSchema}->S.shape(v => ${constructorName}(v))`
+              }
+            })
+            `S.union([${branches->Array.join(", ")}])`
+          } else {
+            // Can't use @unboxed: pick last schema (matching type gen)
+            recurse(effectiveTypes->Array.getUnsafe(Array.length(effectiveTypes) - 1))
+          }
         } else {
           "S.json"
         }
@@ -142,9 +225,18 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
             ->Array.map(((name, fieldType, isRequired)) => {
               let schemaCode = recurse(fieldType)
               let camelName = name->CodegenUtils.toCamelCase->CodegenUtils.escapeKeyword
-              isRequired
-                ? `    ${camelName}: s.field("${name}", ${schemaCode}),`
-                : `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+              let alreadyNullable = String.startsWith(schemaCode, "S.nullableAsOption(") || switch fieldType {
+                | Option(_) => true
+                | Union(types) => types->Array.some(t => switch t { | Null | Literal(NullLiteral) => true | _ => false })
+                | _ => false
+              }
+              if isRequired {
+                `    ${camelName}: s.field("${name}", ${schemaCode}),`
+              } else if alreadyNullable {
+                `    ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
+              } else {
+                `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+              }
             })
             ->Array.join("\n")
           `S.object(s => {\n${fields}\n  })`
@@ -160,45 +252,67 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, irType
             ->Array.map(((name, fieldType, isRequired)) => {
               let schemaCode = recurse(fieldType)
               let camelName = name->CodegenUtils.toCamelCase->CodegenUtils.escapeKeyword
-              isRequired
-                ? `    ${camelName}: s.field("${name}", ${schemaCode}),`
-                : `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+              let alreadyNullable = String.startsWith(schemaCode, "S.nullableAsOption(") || switch fieldType {
+                | Option(_) => true
+                | Union(types) => types->Array.some(t => switch t { | Null | Literal(NullLiteral) => true | _ => false })
+                | _ => false
+              }
+              if isRequired {
+                `    ${camelName}: s.field("${name}", ${schemaCode}),`
+              } else if alreadyNullable {
+                `    ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
+              } else {
+                `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
+              }
             })
             ->Array.join("\n")
           `S.object(s => {\n${fields}\n  })`
         }
       }
     | Reference(ref) =>
-      let schemaPath = switch ctx.availableSchemas {
-      | Some(available) =>
-        let name =
-          ref
-          ->String.split("/")
-          ->Array.get(ref->String.split("/")->Array.length - 1)
-          ->Option.getOr("")
-        available->Array.includes(name)
-          ? `${CodegenUtils.toPascalCase(name)}.schema`
-          : `ComponentSchemas.${CodegenUtils.toPascalCase(name)}.schema`
-      | None =>
-        ReferenceResolver.refToSchemaPath(
-          ~insideComponentSchemas=ctx.insideComponentSchemas,
-          ~modulePrefix=ctx.modulePrefix,
-          ref,
-        )->Option.getOr("S.json")
+      // After IR normalization, ref may be just the schema name
+      let refName = if ref->String.includes("/") {
+        ref->String.split("/")->Array.get(ref->String.split("/")->Array.length - 1)->Option.getOr("")
+      } else {
+        ref
       }
-      if schemaPath == "S.json" {
-        addWarning(
-          ctx,
-          FallbackToJson({
-            reason: `Unresolved ref: ${ref}`,
-            context: {path: ctx.path, operation: "gen ref", schema: None},
-          }),
-        )
+      
+      // Detect self-reference using selfRefName from context
+      let isSelfRef = switch ctx.selfRefName {
+      | Some(selfName) => refName == selfName
+      | None => false
       }
-      schemaPath
+
+      if isSelfRef {
+        "schema" // Self-reference: use the recursive schema binding
+      } else {
+        let schemaPath = switch ctx.availableSchemas {
+        | Some(available) =>
+          available->Array.includes(refName)
+            ? `${CodegenUtils.toPascalCase(refName)}.schema`
+            : `ComponentSchemas.${CodegenUtils.toPascalCase(refName)}.schema`
+        | None =>
+          ReferenceResolver.refToSchemaPath(
+            ~insideComponentSchemas=ctx.insideComponentSchemas,
+            ~modulePrefix=ctx.modulePrefix,
+            ref,
+          )->Option.getOr("S.json")
+        }
+        if schemaPath == "S.json" {
+          addWarning(
+            ctx,
+            FallbackToJson({
+              reason: `Unresolved ref: ${ref}`,
+              context: {path: ctx.path, operation: "gen ref", schema: None},
+            }),
+          )
+        }
+        schemaPath
+      }
     | Option(inner) => `S.nullableAsOption(${recurse(inner)})`
     | Unknown => "S.json"
     }
+    } // end switch foundExtracted
   }
 }
 
@@ -219,6 +333,7 @@ let generateNamedSchema = (
   ~insideComponentSchemas=false,
   ~availableSchemas=?,
   ~modulePrefix="",
+  ~extractedTypes: array<GenerationContext.extractedType>=[],
 ) => {
   let ctx = GenerationContext.make(
     ~path=`schema.${namedSchema.name}`,
@@ -231,8 +346,28 @@ let generateNamedSchema = (
   | Some(d) => CodegenUtils.generateDocComment(~description=d, ())
   | None => ""
   }
+  let extractedTypeMap = if Array.length(extractedTypes) > 0 { Some(extractedTypes) } else { None }
+  let mainSchema = generateSchemaWithContext(~ctx, ~depth=0, ~extractedTypeMap?, namedSchema.type_)
+
+  // Generate schemas for extracted auxiliary types
+  // Exclude the type being generated from the map to avoid self-reference
+  let extractedDefs = extractedTypes->Array.map(({typeName, irType}: GenerationContext.extractedType) => {
+    let auxCtx = GenerationContext.make(
+      ~path=`schema.${typeName}`,
+      ~insideComponentSchemas,
+      ~availableSchemas?,
+      ~modulePrefix,
+      (),
+    )
+    let filteredMap = extractedTypes->Array.filter(({typeName: tn}: GenerationContext.extractedType) => tn != typeName)
+    let auxExtractedTypeMap = if Array.length(filteredMap) > 0 { Some(filteredMap) } else { None }
+    let auxSchema = generateSchemaWithContext(~ctx=auxCtx, ~depth=0, ~extractedTypeMap=?auxExtractedTypeMap, irType)
+    `let ${typeName}Schema = ${auxSchema}`
+  })
+
+  let allDefs = Array.concat(extractedDefs, [`${doc}let ${namedSchema.name}Schema = ${mainSchema}`])
   (
-    `${doc}let ${namedSchema.name}Schema = ${generateSchemaWithContext(~ctx, ~depth=0, namedSchema.type_)}`,
+    allDefs->Array.join("\n\n"),
     ctx.warnings,
   )
 }

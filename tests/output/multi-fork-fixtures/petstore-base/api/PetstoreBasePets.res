@@ -9,7 +9,7 @@ type getpetsResponse = array<PetstoreBaseComponentSchemas.Pet.t>
 let getpetsResponseSchema = S.array(PetstoreBaseComponentSchemas.Pet.schema)
 
 /** List all pets */
-let getpets = (~body as _, ~fetch: (~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>): promise<getpetsResponse> => {
+let getpets = (~fetch: (~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>): promise<getpetsResponse> => {
 
   fetch(
     ~url="/pets",
@@ -47,7 +47,7 @@ type getpetsResponse = PetstoreBaseComponentSchemas.Pet.t
 let getpetsResponseSchema = PetstoreBaseComponentSchemas.Pet.schema
 
 /** Info for a specific pet */
-let getpets = (~body as _, ~fetch: (~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>): promise<getpetsResponse> => {
+let getpets = (~fetch: (~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>): promise<getpetsResponse> => {
 
   fetch(
     ~url="/pets/{petId}",

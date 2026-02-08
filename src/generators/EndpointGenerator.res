@@ -10,13 +10,14 @@ let getJsonSchemaFromRequestBody = (requestBody: option<requestBody>) =>
 
 let generateTypeCodeAndSchemaCode = (~jsonSchema, ~typeName, ~schemaName, ~modulePrefix="") => {
   let (ir, _) = SchemaIRParser.parseJsonSchema(jsonSchema)
-  let (typeCode, _) = IRToTypeGenerator.generateNamedType(
+  let (typeCode, _, extractedTypes) = IRToTypeGenerator.generateNamedType(
     ~namedSchema={name: typeName, description: jsonSchema.description, type_: ir},
     ~modulePrefix,
   )
   let (schemaCode, _) = IRToSuryGenerator.generateNamedSchema(
     ~namedSchema={name: schemaName, description: jsonSchema.description, type_: ir},
     ~modulePrefix,
+    ~extractedTypes,
   )
   (typeCode, schemaCode)
 }
@@ -34,7 +35,10 @@ let generateEndpointFunction = (endpoint: endpoint, ~overrideDir=?, ~moduleName=
   
   let bodyParam = hasRequestBody
     ? (isRequestBodyRequired ? `~body: ${requestTypeName}` : `~body: option<${requestTypeName}>=?`)
-    : "~body as _"
+    : ""
+  
+  // Clean up function signature: handle comma between body and fetch params
+  let paramSep = hasRequestBody ? ", " : ""
   
   let bodyValueConversion = hasRequestBody
     ? (
@@ -83,7 +87,7 @@ let generateEndpointFunction = (endpoint: endpoint, ~overrideDir=?, ~moduleName=
   
   let code = `
     |${docComment->String.trimEnd}
-    |let ${functionName} = (${bodyParam}, ~fetch: ${CodegenUtils.fetchTypeSignature}): promise<${functionName}Response> => {
+    |let ${functionName} = (${bodyParam}${paramSep}~fetch: ${CodegenUtils.fetchTypeSignature}): promise<${functionName}Response> => {
     |${bodyValueConversion}
     |  fetch(
     |    ~url="${endpoint.path}",

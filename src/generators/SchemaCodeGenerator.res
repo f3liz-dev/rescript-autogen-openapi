@@ -4,11 +4,12 @@
 
 let generateTypeCodeAndSchemaCode = (name, schema: Types.jsonSchema) => {
   let (ir, _) = SchemaIRParser.parseJsonSchema(schema)
-  let (typeCode, _) = IRToTypeGenerator.generateNamedType(
+  let (typeCode, _, extractedTypes) = IRToTypeGenerator.generateNamedType(
     ~namedSchema={name: name, description: schema.description, type_: ir},
   )
   let (schemaCode, _) = IRToSuryGenerator.generateNamedSchema(
     ~namedSchema={name: `${name}Schema`, description: schema.description, type_: ir},
+    ~extractedTypes,
   )
   `${typeCode}\n\n${schemaCode}`
 }

@@ -6,8 +6,8 @@ open Types
 let rec extractReferencedSchemaNames = (irType: SchemaIR.irType) =>
   switch irType {
   | Reference(ref) =>
-    let parts = ref->String.split("/")
-    [parts->Array.get(parts->Array.length - 1)->Option.getOr("")]
+    // After normalization, ref is just the schema name (no path prefix)
+    [ref]
   | Array({items}) => extractReferencedSchemaNames(items)
   | Object({properties}) => properties->Array.flatMap(((_name, fieldType, _)) => extractReferencedSchemaNames(fieldType))
   | Union(types)
@@ -31,88 +31,171 @@ let generate = (~spec, ~outputDir) => {
     let schemas = Dict.valuesToArray(context.schemas)
     let schemaNameMap = Dict.fromArray(schemas->Array.map(s => (s.name, s)))
 
-    // Map each schema to its internal dependencies (other schemas in the same spec)
-    let dependencyMap = schemas->Array.reduce(Dict.make(), (acc, schema) => {
+    // Build dependency edges for topological sort
+    // Edge (A, B) means "A depends on B" so B must come before A
+    let allNodes = schemas->Array.map(s => s.name)
+    let edges = schemas->Array.flatMap(schema => {
       let references =
         extractReferencedSchemaNames(schema.type_)->Array.filter(name =>
           Dict.has(schemaNameMap, name) && name != schema.name
         )
-      Dict.set(acc, schema.name, references)
-      acc
+      references->Array.map(dep => (schema.name, dep))
     })
 
-    // Topological sort (Kahn's algorithm) to handle schema dependencies
-    let sortedSchemas = []
-    let inDegreeMap = schemas->Array.reduce(Dict.make(), (acc, schema) => {
-      let degree = Dict.get(dependencyMap, schema.name)->Option.mapOr(0, Array.length)
-      Dict.set(acc, schema.name, degree)
-      acc
-    })
-
-    let queue = schemas->Array.filter(schema => Dict.get(inDegreeMap, schema.name)->Option.getOr(0) == 0)
-
-    while Array.length(queue) > 0 {
-      let schema = switch Array.shift(queue) {
-      | Some(v) => v
-      | None => schemas->Array.getUnsafe(0) // Should not happen
-      }
-      sortedSchemas->Array.push(schema)
-
-      schemas->Array.forEach(otherSchema => {
-        let dependsOnCurrent =
-          Dict.get(dependencyMap, otherSchema.name)
-          ->Option.getOr([])
-          ->Array.some(name => name == schema.name)
-
-        if dependsOnCurrent {
-          let currentDegree = Dict.get(inDegreeMap, otherSchema.name)->Option.getOr(0)
-          let newDegree = currentDegree - 1
-          Dict.set(inDegreeMap, otherSchema.name, newDegree)
-          if newDegree == 0 {
-            queue->Array.push(otherSchema)
-          }
+    // Use toposort with cycle tolerance: if there's a cycle, catch and fall back
+    // Note: toposort returns dependents first, dependencies last.
+    // We reverse to get execution order (dependencies first).
+    let sortedNames = try {
+      Toposort.sortArray(allNodes, edges)->Array.toReversed
+    } catch {
+    | _ =>
+      // Cycles exist — remove back-edges and re-sort
+      let visited = Dict.make()
+      let inStack = Dict.make()
+      let cycleEdges: array<(string, string)> = []
+      
+      let rec dfs = (node) => {
+        if Dict.get(inStack, node)->Option.getOr(false) {
+          ()
+        } else if Dict.get(visited, node)->Option.getOr(false) {
+          ()
+        } else {
+          Dict.set(visited, node, true)
+          Dict.set(inStack, node, true)
+          edges->Array.forEach(((from, to)) => {
+            if from == node {
+              if Dict.get(inStack, to)->Option.getOr(false) {
+                cycleEdges->Array.push((from, to))
+              } else {
+                dfs(to)
+              }
+            }
+          })
+          Dict.set(inStack, node, false)
         }
-      })
+      }
+      allNodes->Array.forEach(dfs)
+      
+      let nonCycleEdges = edges->Array.filter(((from, to)) =>
+        !(cycleEdges->Array.some(((cf, ct)) => cf == from && ct == to))
+      )
+      try {
+        Toposort.sortArray(allNodes, nonCycleEdges)->Array.toReversed
+      } catch {
+      | _ => allNodes->Array.toSorted((a, b) => String.compare(a, b))
+      }
     }
 
-    // Ensure all schemas are included even if there's a circular dependency
-    let sortedNames = sortedSchemas->Array.map(s => s.name)
-    let remainingSchemas =
-      schemas
-      ->Array.filter(s => !(sortedNames->Array.some(name => name == s.name)))
-      ->Array.toSorted((a, b) => String.compare(a.name, b.name))
-
-    let finalSortedSchemas = Array.concat(sortedSchemas, remainingSchemas)
+    let finalSortedSchemas = sortedNames->Array.filterMap(name => Dict.get(schemaNameMap, name))
     let availableSchemaNames = finalSortedSchemas->Array.map(s => s.name)
     let warnings = Array.copy(parseWarnings)
 
+    // Detect self-referencing schemas (schema references itself directly or indirectly through properties)
+    let selfRefSchemas = Dict.make()
+    finalSortedSchemas->Array.forEach(schema => {
+      let refs = extractReferencedSchemaNames(schema.type_)
+      if refs->Array.some(name => name == schema.name) {
+        Dict.set(selfRefSchemas, schema.name, true)
+      }
+    })
+
     let moduleCodes = finalSortedSchemas->Array.map(schema => {
+      let isSelfRef = Dict.get(selfRefSchemas, schema.name)->Option.getOr(false)
+      let selfRefName = isSelfRef ? Some(schema.name) : None
+      
       let typeCtx = GenerationContext.make(
         ~path=`ComponentSchemas.${schema.name}`,
         ~insideComponentSchemas=true,
         ~availableSchemas=availableSchemaNames,
-        (),
-      )
-      let schemaCtx = GenerationContext.make(
-        ~path=`ComponentSchemas.${schema.name}`,
-        ~insideComponentSchemas=true,
-        ~availableSchemas=availableSchemaNames,
+        ~selfRefName?,
         (),
       )
 
       let typeCode = IRToTypeGenerator.generateTypeWithContext(~ctx=typeCtx, ~depth=0, schema.type_)
-      let schemaCode = IRToSuryGenerator.generateSchemaWithContext(~ctx=schemaCtx, ~depth=0, schema.type_)
+
+      // Iteratively resolve nested extractions using typeCtx
+      let processed = ref(0)
+      while processed.contents < Array.length(typeCtx.extractedTypes) {
+        let idx = processed.contents
+        let {irType, isUnboxed, _}: GenerationContext.extractedType = typeCtx.extractedTypes->Array.getUnsafe(idx)
+        if !isUnboxed {
+          ignore(IRToTypeGenerator.generateTypeWithContext(~ctx=typeCtx, ~depth=0, ~inline=false, irType))
+        } else {
+          switch irType {
+          | Union(types) =>
+            types->Array.forEach(memberType => {
+              ignore(IRToTypeGenerator.generateTypeWithContext(~ctx=typeCtx, ~depth=0, ~inline=true, memberType))
+            })
+          | _ => ignore(IRToTypeGenerator.generateTypeWithContext(~ctx=typeCtx, ~depth=0, ~inline=false, irType))
+          }
+        }
+        processed := idx + 1
+      }
+
+      let allExtracted = Array.copy(typeCtx.extractedTypes)->Array.toReversed
+      let extractedTypeMap = if Array.length(allExtracted) > 0 { Some(allExtracted) } else { None }
+
+      // Generate schema with extracted type map for correct references
+      let schemaCtx = GenerationContext.make(
+        ~path=`ComponentSchemas.${schema.name}`,
+        ~insideComponentSchemas=true,
+        ~availableSchemas=availableSchemaNames,
+        ~selfRefName?,
+        (),
+      )
+      let schemaCode = IRToSuryGenerator.generateSchemaWithContext(~ctx=schemaCtx, ~depth=0, ~extractedTypeMap?, schema.type_)
 
       warnings->Array.pushMany(typeCtx.warnings)
       warnings->Array.pushMany(schemaCtx.warnings)
+
+      // Generate extracted auxiliary types and schemas (use ctx for dedup)
+      let extractedTypeDefs = allExtracted->Array.map(({typeName, irType, isUnboxed}: GenerationContext.extractedType) => {
+        let auxTypeCode = if isUnboxed {
+          switch irType {
+          | Union(types) =>
+            let body = IRToTypeGenerator.generateUnboxedVariantBody(~ctx=typeCtx, types)
+            `@unboxed type ${typeName} = ${body}`
+          | _ =>
+            let auxType = IRToTypeGenerator.generateTypeWithContext(~ctx=typeCtx, ~depth=0, irType)
+            `type ${typeName} = ${auxType}`
+          }
+        } else {
+          let auxType = IRToTypeGenerator.generateTypeWithContext(~ctx=typeCtx, ~depth=0, irType)
+          `type ${typeName} = ${auxType}`
+        }
+        let auxSchemaCtx = GenerationContext.make(
+          ~path=`ComponentSchemas.${schema.name}.${typeName}`,
+          ~insideComponentSchemas=true,
+          ~availableSchemas=availableSchemaNames,
+          (),
+        )
+        // Exclude the current type from the map to avoid self-reference
+        let filteredMap = allExtracted->Array.filter(({typeName: tn}: GenerationContext.extractedType) => tn != typeName)
+        let auxExtractedTypeMap = if Array.length(filteredMap) > 0 { Some(filteredMap) } else { None }
+        let auxSchema = IRToSuryGenerator.generateSchemaWithContext(~ctx=auxSchemaCtx, ~depth=0, ~extractedTypeMap=?auxExtractedTypeMap, irType)
+        `  ${auxTypeCode}\n  let ${typeName}Schema = ${auxSchema}`
+      })
 
       let docComment = schema.description->Option.mapOr("", d =>
         CodegenUtils.generateDocString(~description=d, ())
       )
 
+      let extractedBlock = if Array.length(extractedTypeDefs) > 0 {
+        extractedTypeDefs->Array.join("\n") ++ "\n"
+      } else {
+        ""
+      }
+
+      // Use `type rec t` for self-referential types
+      let typeKeyword = isSelfRef ? "type rec t" : "type t"
+      // Wrap schema in S.recursive for self-referential types
+      let finalSchemaCode = isSelfRef
+        ? `S.recursive("${schema.name}", schema => ${schemaCode})`
+        : schemaCode
+
       `${docComment}module ${CodegenUtils.toPascalCase(schema.name)} = {
-  type t = ${typeCode}
-  let schema = ${schemaCode}
+${extractedBlock}  ${typeKeyword} = ${typeCode}
+  let schema = ${finalSchemaCode}
 }`
     })
 

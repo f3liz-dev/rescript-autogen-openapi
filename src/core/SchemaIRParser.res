@@ -5,6 +5,7 @@
 // Helper to convert raw JSON type string to our variant
 // This is needed because Obj.magic from JSON gives us raw strings like "string", "object", etc.
 // but our variant constructors compile to "String", "Object", etc. in JS
+// Also handles OpenAPI 3.1 array form: type: ["string", "null"]
 let parseTypeString = (rawType: Types.jsonSchemaType): Types.jsonSchemaType => {
   // The rawType might actually be a raw string from JSON, so we need to handle that
   // We use Obj.magic to get the underlying JS value and check it
@@ -31,6 +32,21 @@ let parseTypeString = (rawType: Types.jsonSchemaType): Types.jsonSchemaType => {
       | _ => Types.Unknown
       }
     }
+  }
+}
+
+// Check if the type field is an array (OpenAPI 3.1: type: ["string", "null"])
+// Returns Some(array of parsed types) if array, None otherwise
+let parseTypeAsArray = (rawType: Types.jsonSchemaType): option<array<Types.jsonSchemaType>> => {
+  let raw: 'a = Obj.magic(rawType)
+  if Array.isArray(raw) {
+    let arr: array<string> = Obj.magic(raw)
+    Some(arr->Array.map(s => {
+      let t: Types.jsonSchemaType = Obj.magic(s)
+      parseTypeString(t)
+    }))
+  } else {
+    None
   }
 }
 
@@ -67,6 +83,44 @@ let rec parseJsonSchemaWithContext = (
   | None => {
       // Check if nullable
       let isNullable = schema.nullable->Option.getOr(false)
+      
+      // Handle OpenAPI 3.1 array type: type: ["string", "null"]
+      // But skip if anyOf/oneOf is present — those are more specific
+      let hasComposition = schema.anyOf->Option.isSome || schema.oneOf->Option.isSome
+      let typeAsArray = if hasComposition {
+        None
+      } else {
+        schema.type_->Option.flatMap(parseTypeAsArray)
+      }
+      // When composition is preferred, check if the type_ is actually an array
+      // and clear it so the None branch runs the composition handlers
+      let schema = if hasComposition && schema.type_->Option.flatMap(parseTypeAsArray)->Option.isSome {
+        {...schema, type_: None}
+      } else {
+        schema
+      }
+      
+      switch typeAsArray {
+      | Some(types) if Array.length(types) > 1 => {
+          // Array type form — convert to Union of parsed types
+          let irTypes = types->Array.map(t => {
+            let subSchema = {...schema, type_: Some(t), nullable: None}
+            parseJsonSchemaWithContext(~ctx, ~depth=depth + 1, subSchema)
+          })
+          let baseType = SchemaIR.Union(irTypes)
+          if isNullable {
+            SchemaIR.Option(baseType)
+          } else {
+            baseType
+          }
+        }
+      | Some(types) if Array.length(types) == 1 => {
+          // Single-element array: treat as that type
+          let subSchema = {...schema, type_: Some(types->Array.getUnsafe(0)), nullable: None}
+          let baseType = parseJsonSchemaWithContext(~ctx, ~depth=depth + 1, subSchema)
+          if isNullable { SchemaIR.Option(baseType) } else { baseType }
+        }
+      | _ => {
       
       // Normalize the type field (raw JSON strings like "string" -> variant String)
       let normalizedType = schema.type_->Option.map(parseTypeString)
@@ -164,8 +218,8 @@ let rec parseJsonSchemaWithContext = (
               SchemaIR.Union(literals)
             }
            | (_, Some(_), _, _, _) => {
-              // Has properties, treat as object
-              parseJsonSchemaWithContext(~ctx, ~depth=depth + 1, {...schema, type_: Some(Object)})
+              // Has properties, treat as object (clear nullable to avoid double wrapping)
+              parseJsonSchemaWithContext(~ctx, ~depth=depth + 1, {...schema, type_: Some(Object), nullable: None})
             }
           | (_, _, Some(schemas), _, _) => {
               // allOf - intersection
@@ -193,6 +247,8 @@ let rec parseJsonSchemaWithContext = (
       } else {
         baseType
       }
+    } // end | _ => (typeAsArray arm)
+    } // end switch typeAsArray
     }
   }
   }
@@ -216,6 +272,37 @@ let parseNamedSchema = (~name: string, ~schema: Types.jsonSchema): (SchemaIR.nam
   }, ctx.warnings)
 }
 
+// Normalize $ref paths in IR: "#/components/schemas/Name" → "Name" (when Name exists in available schemas)
+let rec normalizeReferences = (~availableNames: array<string>, irType: SchemaIR.irType): SchemaIR.irType => {
+  switch irType {
+  | SchemaIR.Reference(ref) => {
+      let parts = ref->String.split("/")
+      let name = parts->Array.get(parts->Array.length - 1)->Option.getOr("")
+      if availableNames->Array.includes(name) {
+        SchemaIR.Reference(name)
+      } else {
+        irType
+      }
+    }
+  | SchemaIR.Array({items, constraints}) =>
+    SchemaIR.Array({items: normalizeReferences(~availableNames, items), constraints})
+  | SchemaIR.Object({properties, additionalProperties}) => {
+      let newProperties = properties->Array.map(((n, t, r)) =>
+        (n, normalizeReferences(~availableNames, t), r)
+      )
+      let newAdditional = additionalProperties->Option.map(t => normalizeReferences(~availableNames, t))
+      SchemaIR.Object({properties: newProperties, additionalProperties: newAdditional})
+    }
+  | SchemaIR.Union(types) =>
+    SchemaIR.Union(types->Array.map(t => normalizeReferences(~availableNames, t)))
+  | SchemaIR.Intersection(types) =>
+    SchemaIR.Intersection(types->Array.map(t => normalizeReferences(~availableNames, t)))
+  | SchemaIR.Option(inner) =>
+    SchemaIR.Option(normalizeReferences(~availableNames, inner))
+  | other => other
+  }
+}
+
 // Parse all component schemas
 let parseComponentSchemas = (schemas: dict<Types.jsonSchema>): (SchemaIR.schemaContext, array<Types.warning>) => {
   let namedSchemas = Dict.make()
@@ -225,6 +312,13 @@ let parseComponentSchemas = (schemas: dict<Types.jsonSchema>): (SchemaIR.schemaC
     let (namedSchema, warnings) = parseNamedSchema(~name, ~schema)
     Dict.set(namedSchemas, name, namedSchema)
     allWarnings->Array.pushMany(warnings)
+  })
+  
+  // Resolve $ref paths in the IR: normalize "#/components/schemas/Name" to just "Name"
+  let availableNames = Dict.keysToArray(namedSchemas)
+  namedSchemas->Dict.toArray->Array.forEach(((name, namedSchema)) => {
+    let resolved = normalizeReferences(~availableNames, namedSchema.type_)
+    Dict.set(namedSchemas, name, {...namedSchema, type_: resolved})
   })
   
   ({schemas: namedSchemas}, allWarnings)

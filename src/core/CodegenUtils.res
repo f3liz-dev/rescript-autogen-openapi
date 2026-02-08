@@ -128,3 +128,53 @@ let generateDocString = (~summary=?, ~description=?, ()): string => {
 
 // Shared type signature for the fetch function used in generated code
 let fetchTypeSignature = "(~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>"
+
+// Generate variant constructor name from an IR type
+let rec variantConstructorName = (irType: SchemaIR.irType): string => {
+  switch irType {
+  | String(_) => "String"
+  | Number(_) => "Float"
+  | Integer(_) => "Int"
+  | Boolean => "Bool"
+  | Null => "Null"
+  | Array(_) => "Array"
+  | Object(_) => "Object"
+  | Reference(ref) =>
+    let name = if ref->String.includes("/") {
+      ref->String.split("/")->Array.get(ref->String.split("/")->Array.length - 1)->Option.getOr("Ref")
+    } else {
+      ref
+    }
+    toPascalCase(name)
+  | Literal(StringLiteral(s)) => toPascalCase(s)
+  | Literal(NumberLiteral(_)) => "Number"
+  | Literal(BooleanLiteral(_)) => "Bool"
+  | Literal(NullLiteral) => "Null"
+  | Option(inner) => variantConstructorName(inner)
+  | Intersection(_) => "Intersection"
+  | Union(_) => "Union"
+  | Unknown => "Unknown"
+  }
+}
+
+// Deduplicate variant constructor names by appending counter suffix
+let deduplicateNames = (names: array<string>): array<string> => {
+  let counts: Dict.t<int> = Dict.make()
+  let result: array<string> = []
+  names->Array.forEach(name => {
+    let count = counts->Dict.get(name)->Option.getOr(0)
+    counts->Dict.set(name, count + 1)
+  })
+  let seen: Dict.t<int> = Dict.make()
+  names->Array.forEach(name => {
+    let total = counts->Dict.get(name)->Option.getOr(1)
+    if total > 1 {
+      let idx = seen->Dict.get(name)->Option.getOr(0) + 1
+      seen->Dict.set(name, idx)
+      result->Array.push(`${name}${Int.toString(idx)}`)
+    } else {
+      result->Array.push(name)
+    }
+  })
+  result
+}

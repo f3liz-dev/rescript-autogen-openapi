@@ -59,7 +59,12 @@ let generateNamedType = (~namedSchema: SchemaIR.namedSchema) => {
   let typeCode = generateType(~irType=namedSchema.type_)
 
   let declaration = switch namedSchema.type_ {
-  | Object(_) => `export interface ${namedSchema.name} ${typeCode}`
+  | Object(_) => 
+    if typeCode == "Record<string, never>" {
+      `export type ${namedSchema.name} = ${typeCode};`
+    } else {
+      `export interface ${namedSchema.name} ${typeCode}`
+    }
   | _ => `export type ${namedSchema.name} = ${typeCode};`
   }
 

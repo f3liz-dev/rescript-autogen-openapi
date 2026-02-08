@@ -4,12 +4,12 @@
 
 
 
-type getstoreinventoryResponse = JSON.t
+type getstoreinventoryResponse = dict<JSON.t>
 
-let getstoreinventoryResponseSchema = S.json
+let getstoreinventoryResponseSchema = S.dict(S.json)
 
 /** Returns pet inventories by status */
-let getstoreinventory = (~body as _, ~fetch: (~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>): promise<getstoreinventoryResponse> => {
+let getstoreinventory = (~fetch: (~url: string, ~method_: string, ~body: option<JSON.t>) => Promise.t<JSON.t>): promise<getstoreinventoryResponse> => {
 
   fetch(
     ~url="/store/inventory",

@@ -205,6 +205,39 @@ let rec equals = (a: irType, b: irType): bool => {
   | (Boolean, Boolean) => true
   | (Null, Null) => true
   | (Array({items: itemsA, _}), Array({items: itemsB, _})) => equals(itemsA, itemsB)
+  | (Object({properties: propsA, additionalProperties: addA}), Object({properties: propsB, additionalProperties: addB})) =>
+    Array.length(propsA) == Array.length(propsB) &&
+    propsA->Array.everyWithIndex((propA, i) => {
+      switch propsB->Array.get(i) {
+      | Some(propB) => {
+          let (nameA, typeA, reqA) = propA
+          let (nameB, typeB, reqB) = propB
+          nameA == nameB && reqA == reqB && equals(typeA, typeB)
+        }
+      | None => false
+      }
+    }) &&
+    switch (addA, addB) {
+    | (Some(a), Some(b)) => equals(a, b)
+    | (None, None) => true
+    | _ => false
+    }
+  | (Union(typesA), Union(typesB)) =>
+    Array.length(typesA) == Array.length(typesB) &&
+    typesA->Array.everyWithIndex((tA, i) =>
+      switch typesB->Array.get(i) {
+      | Some(tB) => equals(tA, tB)
+      | None => false
+      }
+    )
+  | (Intersection(typesA), Intersection(typesB)) =>
+    Array.length(typesA) == Array.length(typesB) &&
+    typesA->Array.everyWithIndex((tA, i) =>
+      switch typesB->Array.get(i) {
+      | Some(tB) => equals(tA, tB)
+      | None => false
+      }
+    )
   | (Reference(refA), Reference(refB)) => refA == refB
   | (Option(innerA), Option(innerB)) => equals(innerA, innerB)
   | (Literal(litA), Literal(litB)) => {
