@@ -3,6 +3,7 @@
 // Error.res - Compact error and warning types with helpers
 
 // Error context for debugging (defined here to avoid circular dependency)
+@genType
 type context = {
   path: string,
   operation: string,
@@ -10,6 +11,7 @@ type context = {
 }
 
 // Structured error types (keep original names for backward compat)
+@genType
 type t =
   | SpecResolutionError({url: string, message: string})
   | SchemaParseError({context: context, reason: string})
@@ -22,6 +24,7 @@ type t =
 
 // Warning types
 module Warning = {
+  @genType
   type t =
     | FallbackToJson({reason: string, context: context})
     | UnsupportedFeature({feature: string, fallback: string, location: string})

@@ -9,12 +9,25 @@ Generate ReScript code with [Sury](https://github.com/DZakh/rescript-schema) sch
 *   **Multi-Fork Support**: Intelligently handles multiple API forks (like Misskey, Cherrypick, Firefish) by extracting shared code and generating fork-specific extensions.
 *   **Unified IR Pipeline**: Advanced type inference with a unified intermediate representation that generates both types and schemas.
 *   **Diff & Merge**: Compare specs, generate diff reports, and optimize code reuse across variants.
-*   **TypeScript Support**: Generates `.d.ts` files and TypeScript wrappers for idiomatic use in JS/TS projects.
+*   **TypeScript Support**: First-class TypeScript support via `genType`. Exported functions and types are idiomatic and fully typed for use in TypeScript projects.
 
 ## 📦 Installation
 
 ```bash
-npm install @f3liz/rescript-autogen-openapi sury @readme/openapi-parser
+npm install @f3liz/rescript-autogen-openapi sury
+```
+
+**Important**: This library has a peer dependency on `sury` (ReScript Schema). You must install it in your project because the generated code directly depends on it for runtime validation.
+
+### Configure `rescript.json`
+
+Add `sury` to your project dependencies:
+
+```json
+{
+  "name": "my-project",
+  "dependencies": ["sury"]
+}
 ```
 
 Ensure you have `rescript` (^12.0.0) installed.

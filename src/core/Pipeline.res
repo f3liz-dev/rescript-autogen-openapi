@@ -3,6 +3,7 @@
 // Pipeline.res - Compact data transformation pipeline
 open Types
 
+@genType
 type t = {
   files: array<FileSystem.fileToWrite>,
   warnings: array<warning>,

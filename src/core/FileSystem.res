@@ -8,6 +8,7 @@
 @module("pathe") external dirname: string => string = "dirname"
 
 // Represents a file to be written
+@genType
 type fileToWrite = {
   path: string,
   content: string,

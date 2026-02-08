@@ -2,20 +2,24 @@
 
 // Config.res - Generation configuration types
 
+@genType
 type generationStrategy =
   | Separate
   | SharedBase
 
+@genType
 type breakingChangeHandling =
   | Error
   | Warn
   | Ignore
 
+@genType
 type forkSpecConfig = {
   name: string,
   specPath: string,
 }
 
+@genType
 type generationTargets = {
   rescriptApi: bool,              // Generate base ReScript API (always true by default)
   rescriptWrapper: bool,          // Generate ReScript thin wrapper (pipe-first)
@@ -23,6 +27,7 @@ type generationTargets = {
   typescriptWrapper: bool,        // Generate TypeScript/JavaScript wrapper
 }
 
+@genType
 type t = {
   specPath: string,
   forkSpecs: option<array<forkSpecConfig>>,
@@ -43,6 +48,7 @@ type t = {
 }
 
 // Default configuration
+@genType
 let make = (
   ~specPath,
   ~outputDir,

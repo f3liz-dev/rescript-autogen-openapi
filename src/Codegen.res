@@ -7,6 +7,7 @@ open Types
 @val external promiseAll: array<promise<'a>> => promise<array<'a>> = "Promise.all"
 
 // Generate code from a single spec (pure - returns data)
+@genType
 let generateSingleSpecPure = (~spec: openAPISpec, ~config: generationConfig): result<Pipeline.t, codegenError> => {
   try {
     let targets = config.targets->Option.getOr(Config.defaultTargets())
@@ -54,6 +55,7 @@ let generateSingleSpecPure = (~spec: openAPISpec, ~config: generationConfig): re
 }
 
 // Generate code from a single spec (with side effects)
+@genType
 let generateSingleSpec = async (~spec: openAPISpec, ~config: generationConfig): generationResult => {
   switch generateSingleSpecPure(~spec, ~config) {
   | Result.Error(err) => Result.Error(err)
@@ -140,6 +142,7 @@ let processForkPure = (~baseSpec: openAPISpec, ~baseEndpoints: array<endpoint>, 
 }
 
 // Generate code from multiple specs (pure - returns data)
+@genType
 let generateMultiSpecPure = (~baseSpec: openAPISpec, ~forkSpecs: array<forkSpec>, ~config: generationConfig): result<Pipeline.t, codegenError> => {
   try {
     let baseEndpoints = OpenAPIParser.getAllEndpoints(baseSpec)
@@ -169,6 +172,7 @@ let generateMultiSpecPure = (~baseSpec: openAPISpec, ~forkSpecs: array<forkSpec>
 }
 
 // Generate code from multiple specs (with side effects)
+@genType
 let generateMultiSpec = async (~baseSpec: openAPISpec, ~forkSpecs: array<forkSpec>, ~config: generationConfig): generationResult =>
   switch generateMultiSpecPure(~baseSpec, ~forkSpecs, ~config) {
   | Result.Error(err) => Result.Error(err)
@@ -179,6 +183,7 @@ let generateMultiSpec = async (~baseSpec: openAPISpec, ~forkSpecs: array<forkSpe
   }
 
 // Compare two specs and generate diff report
+@genType
 let compareSpecs = async (~baseSpec, ~forkSpec, ~baseName="base", ~forkName="fork", ~outputPath=?) => {
   let diff = SpecDiffer.generateDiff(~baseSpec, ~forkSpec, ~baseEndpoints=OpenAPIParser.getAllEndpoints(baseSpec), ~forkEndpoints=OpenAPIParser.getAllEndpoints(forkSpec))
   outputPath->Option.forEach(path => {
@@ -188,6 +193,7 @@ let compareSpecs = async (~baseSpec, ~forkSpec, ~baseName="base", ~forkName="for
 }
 
 // Main generation function
+@genType
 let generate = async (config: generationConfig): generationResult => {
   switch await SchemaRefResolver.resolve(config.specPath) {
   | Result.Error(message) => Result.Error(SpecResolutionError({url: config.specPath, message}))
@@ -207,6 +213,7 @@ let generate = async (config: generationConfig): generationResult => {
   }
 }
 
+@genType
 let createDefaultConfig = (url, outputDir): generationConfig => ({
   specPath: url, outputDir, strategy: SharedBase, includeTags: None, excludeTags: None,
   modulePerTag: true, generateDiffReport: true, breakingChangeHandling: Warn,
@@ -215,8 +222,10 @@ let createDefaultConfig = (url, outputDir): generationConfig => ({
   baseInstanceName: None, baseModulePrefix: None,
 })
 
+@genType
 let generateFromUrl = async (~url, ~outputDir, ~config=?) => 
   await generate({...config->Option.getOr(createDefaultConfig(url, outputDir)), specPath: url})
 
+@genType
 let generateFromFile = async (~filePath, ~outputDir, ~config=?) => 
   await generate({...config->Option.getOr(createDefaultConfig(filePath, outputDir)), specPath: filePath})

@@ -13,6 +13,12 @@
     }
   ],
   "suffix": ".mjs",
+  "gentypeconfig": {
+    "language": "typescript",
+    "module": "es6",
+    "importPath": "relative",
+    "generatedFileExtension": ".gen.ts"
+  },
   "dependencies": [],
   "warnings": {
     "number": "-44-102"

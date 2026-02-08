@@ -16,7 +16,8 @@
   "license": "MPL-2.0",
   "files": [
     "src/**/*.res",
-    "lib/es6/**/*.mjs",
+    "lib/es6/src/**/*.mjs",
+    "lib/es6/src/**/*.d.ts",
     "rescript.json",
     "README.md",
     "LICENSE"
@@ -25,23 +26,26 @@
     "url": "https://github.com/f3liz-dev/rescript-autogen-openapi"
   },
   "scripts": {
-    "build": "rescript",
+    "build": "rescript && node scripts/generate-dts.mjs",
     "clean": "rescript clean",
     "watch": "rescript build -w",
     "test": "node --test"
   },
   "main": "lib/es6/src/Codegen.mjs",
+  "types": "lib/es6/src/Codegen.d.ts",
   "type": "module",
   "dependencies": {
     "@readme/openapi-parser": "^5.5.0",
     "js-convert-case": "^4.2.0",
-    "pathe": "^2.0.3",
-    "sury": "11.0.0-alpha.4"
+    "pathe": "^2.0.3"
   },
   "devDependencies": {
-    "rescript": "^12.1.0"
+    "rescript": "^12.1.0",
+    "sury": "11.0.0-alpha.4",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "rescript": "^12.0.0"
+    "rescript": "^12.0.0",
+    "sury": ">=11.0.0-alpha.4"
   }
 }
