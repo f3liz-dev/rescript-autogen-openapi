@@ -15,7 +15,7 @@ module Pet = {
   let schema = S.object(s => {
     id: s.field("id", S.int),
     name: s.field("name", S.string),
-    tag: s.fieldOr("tag", S.nullableAsOption(S.string), None),
-    age: s.fieldOr("age", S.nullableAsOption(S.int), None),
+    tag: s.field("tag", S.option(S.string)),
+    age: s.field("age", S.option(S.int)),
   })
 }

@@ -5,9 +5,7 @@ open Types
 
 let addWarning = GenerationContext.addWarning
 
-// Sury can't set defaults for dict/object types, so we need s.field with S.option instead of s.fieldOr
-let cannotSetDefault = (schemaCode: string) =>
-  String.includes(schemaCode, "S.dict(") || String.includes(schemaCode, "S.object(")
+// Sury can't set defaults for nullableAsOption schemas, so we use s.field with S.option instead of s.fieldOr
 
 // Replace S.nullableAsOption(...) with S.option(...) to avoid double-option wrapping
 let nullableToOption = (schemaCode: string) =>
@@ -85,17 +83,9 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, ~extra
             if isRequired {
               `    ${camelName}: s.field("${name}", ${schemaCode}),`
             } else if alreadyNullable {
-              if cannotSetDefault(schemaCode) {
-                `    ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
-              } else {
-                `    ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
-              }
+              `    ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
             } else {
-              if cannotSetDefault(schemaCode) {
-                `    ${camelName}: s.field("${name}", S.option(${schemaCode})),`
-              } else {
-                `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
-              }
+              `    ${camelName}: s.field("${name}", S.option(${schemaCode})),`
             }
           })
           ->Array.join("\n")
@@ -197,17 +187,9 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, ~extra
                     if isRequired {
                       `      ${camelName}: s.field("${name}", ${schemaCode}),`
                     } else if alreadyNullable {
-                      if cannotSetDefault(schemaCode) {
-                        `      ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
-                      } else {
-                        `      ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
-                      }
+                      `      ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
                     } else {
-                      if cannotSetDefault(schemaCode) {
-                        `      ${camelName}: s.field("${name}", S.option(${schemaCode})),`
-                      } else {
-                        `      ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
-                      }
+                      `      ${camelName}: s.field("${name}", S.option(${schemaCode})),`
                     }
                   })->Array.join("\n")
                   `S.object(s => ${constructorName}({\n${fields}\n    }))`
@@ -261,17 +243,9 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, ~extra
               if isRequired {
                 `    ${camelName}: s.field("${name}", ${schemaCode}),`
               } else if alreadyNullable {
-                if cannotSetDefault(schemaCode) {
-                  `    ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
-                } else {
-                  `    ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
-                }
+                `    ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
               } else {
-                if cannotSetDefault(schemaCode) {
-                  `    ${camelName}: s.field("${name}", S.option(${schemaCode})),`
-                } else {
-                  `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
-                }
+                `    ${camelName}: s.field("${name}", S.option(${schemaCode})),`
               }
             })
             ->Array.join("\n")
@@ -296,17 +270,9 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, ~extra
               if isRequired {
                 `    ${camelName}: s.field("${name}", ${schemaCode}),`
               } else if alreadyNullable {
-                if cannotSetDefault(schemaCode) {
-                  `    ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
-                } else {
-                  `    ${camelName}: s.fieldOr("${name}", ${schemaCode}, None),`
-                }
+                `    ${camelName}: s.field("${name}", ${nullableToOption(schemaCode)}),`
               } else {
-                if cannotSetDefault(schemaCode) {
-                  `    ${camelName}: s.field("${name}", S.option(${schemaCode})),`
-                } else {
-                  `    ${camelName}: s.fieldOr("${name}", S.nullableAsOption(${schemaCode}), None),`
-                }
+                `    ${camelName}: s.field("${name}", S.option(${schemaCode})),`
               }
             })
             ->Array.join("\n")
