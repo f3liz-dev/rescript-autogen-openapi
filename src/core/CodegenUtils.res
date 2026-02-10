@@ -48,21 +48,69 @@ let escapeString = (str: string): string =>
   ->String.replaceAll("\n", "\\n")->String.replaceAll("\r", "\\r")
   ->String.replaceAll("\t", "\\t")
 
-// Escape Regex Pattern (escape unescaped slashes, then escape string)
+// Escape Regex Pattern for ReScript 12 regex literals
+// With /.../ syntax, forward slashes don't need escaping inside character classes
+// Only fix hyphen placement in character classes for clarity
 let escapeRegexPattern = (str: string): string => {
-  let withEscapedSlashes = %raw(`
+  // Move escaped hyphens (\-) to the end of character classes for clarity
+  %raw(`
     function(s) {
-      return s.replace(/(\\*)(\/)/g, function(match, backslashes, slash) {
-        if (backslashes.length % 2 === 0) {
-          return backslashes + '\\\\' + slash;
-        } else {
-          return match;
+      return s.replace(/\[([^\]]+)\]/g, function(match) {
+        let content = match.slice(1, -1);
+        let chars = [];
+        let hyphenCount = 0;
+        let i = 0;
+        
+        while (i < content.length) {
+          if (content[i] === '\\\\' && i + 1 < content.length) {
+            if (content[i + 1] === '-') {
+              // Escaped hyphen - count it and skip
+              hyphenCount++;
+              i += 2;
+            } else {
+              // Other escaped char - keep as is
+              chars.push(content[i]);
+              chars.push(content[i + 1]);
+              i += 2;
+            }
+          } else if (content[i] === '-' && i > 0 && i < content.length - 1) {
+            // Check if this hyphen is part of a valid range
+            let prevChar = chars[chars.length - 1];
+            let nextChar = content[i + 1];
+            // If previous char is a backslash, this can't be a range
+            if (chars.length >= 2 && chars[chars.length - 2] === '\\\\') {
+              // Previous was escaped, so this hyphen is literal
+              hyphenCount++;
+              i++;
+            } else if (nextChar === '\\\\') {
+              // Next is escape sequence, hyphen is literal
+              hyphenCount++;
+              i++;
+            } else if (prevChar && nextChar && prevChar.charCodeAt(0) < nextChar.charCodeAt(0)) {
+              // Valid range (e.g., a-z), keep the hyphen
+              chars.push('-');
+              i++;
+            } else {
+              // Invalid or ambiguous, move to end
+              hyphenCount++;
+              i++;
+            }
+          } else {
+            // Regular character or hyphen at start/end
+            chars.push(content[i]);
+            i++;
+          }
         }
+        
+        // Add collected hyphens at the end
+        let result = chars.join('');
+        if (hyphenCount > 0) {
+          result += '-'.repeat(hyphenCount);
+        }
+        return '[' + result + ']';
       });
     }
   `)(str)
-  
-  escapeString(withEscapedSlashes)
 }
 
 // Generate file header

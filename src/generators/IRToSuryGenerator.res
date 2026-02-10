@@ -42,7 +42,7 @@ let rec generateSchemaWithContext = (~ctx: GenerationContext.t, ~depth=0, ~extra
     | String({constraints: c}) =>
       let s = applyConstraints("S.string", c.minLength, c.maxLength, v => Int.toString(v))
       switch c.pattern {
-      | Some(p) => `${s}->S.pattern(%re("/${CodegenUtils.escapeRegexPattern(p)}/"))`
+      | Some(p) => `${s}->S.pattern(/${CodegenUtils.escapeRegexPattern(p)}/)`
       | None => s
       }
     | Number({constraints: c}) =>
