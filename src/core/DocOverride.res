@@ -183,29 +183,15 @@ let generateOverrideMarkdown = (
     ]->Array.filterMap(x => x)
   )
   
-  let content = `
-    |${Array.join(metadata, "\n")}
-    |
-    |# ${endpoint.summary->Option.getOr(endpoint.path)}
-    |
-    |**Path**: \`${endpoint.path}\`  
-    |**Method**: \`${endpoint.method->String.toUpperCase}\`  
-    |**Operation**: \`${operationName}\`
-    |
-    |## Default Description
-    |
-    |${defaultDesc}
-    |
-    |## Override
-    |
-    |Add your custom documentation here. If this code block is empty, the default description will be used.
-    |
-    |\`\`\`
-    |<!-- Empty - no override -->
-    |\`\`\`
-    |`
-  
-  content->CodegenUtils.trimMargin
+  Handlebars.render(Templates.overrideMarkdown, {
+      "metadataBlock": Array.join(metadata, "\n"),
+      "title": endpoint.summary->Option.getOr(endpoint.path),
+      "path": endpoint.path,
+      "methodUpper": endpoint.method->String.toUpperCase,
+      "operationName": operationName,
+      "defaultDesc": defaultDesc,
+    },
+  )
 }
 
 // Read override from file system
@@ -390,107 +376,7 @@ let generateOverrideReadme = (~host: option<string>=?, ~version: option<string>=
   let hostInfo = host->Option.getOr("Not specified")
   let versionInfo = version->Option.getOr("Not specified")
   
-  `
-    |# API Documentation Overrides
-    |
-    |This directory contains markdown files that allow you to override the auto-generated documentation.
-    |
-    |## Global Information
-    |
-    |- **Host**: ${hostInfo}
-    |- **Version**: ${versionInfo}
-    |
-    |## Structure
-    |
-    |Each module has its own directory, and each endpoint has its own markdown file:
-    |
-    |\`\`\`
-    |docs/
-    |├── README.md (this file)
-    |├── Account/
-    |│   ├── postBlockingCreate.md
-    |│   ├── postBlockingDelete.md
-    |│   └── ...
-    |├── Notes/
-    |│   ├── postNotesCreate.md
-    |│   └── ...
-    |└── ...
-    |\`\`\`
-    |
-    |## How to Override
-    |
-    |1. Find the endpoint you want to document in its module directory
-    |2. Open the markdown file
-    |3. Edit the code block under the "## Override" section
-    |4. Add your custom documentation (supports markdown)
-    |5. Regenerate the code - your custom documentation will be used instead of the default
-    |
-    |## File Format
-    |
-    |Each file contains:
-    |
-    |### Frontmatter
-    |- \`endpoint\`: The API endpoint path
-    |- \`method\`: HTTP method (GET, POST, etc.)
-    |- \`hash\`: Hash of the endpoint for change detection
-    |- \`host\`: API host URL
-    |- \`version\`: API version
-    |- \`operationId\`: OpenAPI operation ID
-    |
-    |### Default Description
-    |The original description from the OpenAPI spec.
-    |
-    |### Override Section
-    |A code block where you can add your custom documentation. If empty, the default description is used.
-    |
-    |## Example
-    |
-    |\`\`\`markdown
-    |---
-    |endpoint: /blocking/create
-    |method: POST
-    |hash: abc123
-    |host: https://misskey.io
-    |version: 1.0.0
-    |---
-    |
-    |# blocking/create
-    |
-    |**Path**: \`/blocking/create\`
-    |**Method**: \`POST\`
-    |
-    |## Default Description
-    |
-    |No description provided.
-    |
-    |**Credential required**: *Yes* / **Permission**: *write:blocks*
-    |
-    |## Override
-    |
-    |\`\`\`
-    |Create a blocking relationship with another user.
-    |
-    |This endpoint allows you to block a user by their user ID. Once blocked:
-    |- The user will not be able to see your posts
-    |- You will not see their posts in your timeline
-    |- They cannot follow you
-    |
-    |**Parameters:**
-    |- \`userId\`: The ID of the user to block
-    |
-    |**Example:**
-    |\`\`\`typescript
-    |await client.blocking.create({ userId: "user123" })
-    |\`\`\`
-    |\`\`\`
-    |\`\`\`
-    |
-    |## Notes
-    |
-    |- The hash is used to detect if the endpoint has changed in the OpenAPI spec
-    |- If the endpoint changes, you may need to update your override
-    |- Empty override blocks (with just \`<!-- Empty - no override -->\`) are ignored
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(Templates.overrideReadme, {"hostInfo": hostInfo, "versionInfo": versionInfo})
 }
 
 // No automatic refresh - users should manually delete outdated files

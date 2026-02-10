@@ -75,10 +75,12 @@ let generateEndpointModule = (path, method, operation: Types.operation) => {
   }
   let schemasCode = generateOperationSchemas(operationId, operation)
 
-  `${docComment}module ${CodegenUtils.toPascalCase(operationId)} = {
-${schemasCode->CodegenUtils.indent(2)}
-
-  let endpoint = "${path}"
-  let method = #${methodStr}
-}`
+  Handlebars.render(Templates.endpointModule, {
+      "docComment": docComment,
+      "moduleName": CodegenUtils.toPascalCase(operationId),
+      "schemasCode": schemasCode->CodegenUtils.indent(2),
+      "path": path,
+      "methodStr": methodStr,
+    },
+  )
 }

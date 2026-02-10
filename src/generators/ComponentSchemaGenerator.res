@@ -193,10 +193,14 @@ let generate = (~spec, ~outputDir) => {
         ? `S.recursive("${schema.name}", schema => ${schemaCode})`
         : schemaCode
 
-      `${docComment}module ${CodegenUtils.toPascalCase(schema.name)} = {
-${extractedBlock}  ${typeKeyword} = ${typeCode}
-  let schema = ${finalSchemaCode}
-}`
+      Handlebars.render(Templates.componentSchemaModule, {
+        "docComment": docComment,
+        "moduleName": CodegenUtils.toPascalCase(schema.name),
+        "extractedBlock": extractedBlock,
+        "typeKeyword": `  ${typeKeyword}`,
+        "typeCode": typeCode,
+        "schemaCode": finalSchemaCode,
+      })
     })
 
     let fileHeader = CodegenUtils.generateFileHeader(~description="Shared component schemas")

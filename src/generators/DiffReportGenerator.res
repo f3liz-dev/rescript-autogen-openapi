@@ -76,35 +76,17 @@ let generateCompactSummary = (diff: specDiff) => {
   `Found ${totalChanges->Int.toString} changes: +${addedCount->Int.toString} -${removedCount->Int.toString} ~${modifiedCount->Int.toString} endpoints${breakingText}`
 }
 
-let generateMergeReport = (~stats: SpecMerger.mergeStats, ~baseName, ~forkName) => {
-  let sharedEndpoints = stats.sharedEndpointCount->Int.toString
-  let sharedSchemas = stats.sharedSchemaCount->Int.toString
-  let extensionEndpoints = stats.forkExtensionCount->Int.toString
-  let extensionSchemas = stats.forkSchemaCount->Int.toString
-
-  `
-    |# Merge Report: ${baseName} + ${forkName}
-    |
-    |## Shared Code
-    |
-    |- **Shared Endpoints**: ${sharedEndpoints}
-    |- **Shared Schemas**: ${sharedSchemas}
-    |
-    |## ${forkName} Extensions
-    |
-    |- **Extension Endpoints**: ${extensionEndpoints}
-    |- **Extension Schemas**: ${extensionSchemas}
-    |
-    |## Summary
-    |
-    |The shared base contains ${sharedEndpoints} endpoints and ${sharedSchemas} schemas.
-    |
-    |${forkName} adds ${extensionEndpoints} endpoints and ${extensionSchemas} schemas.
-    |
-    |---
-    |*Generated on ${Date.make()->Date.toISOString}*
-    |`->CodegenUtils.trimMargin
-}
+let generateMergeReport = (~stats: SpecMerger.mergeStats, ~baseName, ~forkName) =>
+  Handlebars.render(Templates.mergeReport, {
+      "baseName": baseName,
+      "forkName": forkName,
+      "sharedEndpoints": stats.sharedEndpointCount->Int.toString,
+      "sharedSchemas": stats.sharedSchemaCount->Int.toString,
+      "extensionEndpoints": stats.forkExtensionCount->Int.toString,
+      "extensionSchemas": stats.forkSchemaCount->Int.toString,
+      "timestamp": Date.make()->Date.toISOString,
+    },
+  )
 
 let generateEndpointsByTagReport = (endpoints: array<endpoint>) => {
   let endpointsByTag = Dict.make()

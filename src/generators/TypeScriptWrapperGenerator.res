@@ -3,43 +3,22 @@
 // TypeScriptWrapperGenerator.res - Generate TypeScript/JavaScript wrapper
 open Types
 
-let misskeyClientJsCode = `
-  |export class MisskeyClient {
-  |  constructor(baseUrl, token) {
-  |    this.baseUrl = baseUrl;
-  |    this.token = token;
-  |  }
-  |
-  |  async _fetch(url, method, body) {
-  |    const headers = { 'Content-Type': 'application/json' };
-  |    if (this.token) {
-  |      headers['Authorization'] = \`Bearer \${this.token}\`;
-  |    }
-  |    const response = await fetch(this.baseUrl + url, {
-  |      method,
-  |      headers,
-  |      body: body ? JSON.stringify(body) : undefined,
-  |    });
-  |    return response.json();
-  |  }
-  |}`->CodegenUtils.trimMargin
+let misskeyClientJsCode = {
+  let body: string = %raw(`
+    "export class MisskeyClient {\n  constructor(baseUrl, token) {\n    this.baseUrl = baseUrl;\n    this.token = token;\n  }\n\n  async _fetch(url, method, body) {\n    const headers = { 'Content-Type': 'application/json' };\n    if (this.token) {\n      headers['Authorization'] = \x60Bearer \x24{this.token}\x60;\n    }\n    const response = await fetch(this.baseUrl + url, {\n      method,\n      headers,\n      body: body ? JSON.stringify(body) : undefined,\n    });\n    return response.json();\n  }\n}"
+  `)
+  body
+}
 
 let generateWrapperMjs = (~endpoints, ~generatedModulePath) => {
   let endpointsByTag = OpenAPIParser.groupByTag(endpoints)
   let tags = Dict.keysToArray(endpointsByTag)
 
-  let imports =
+  let tagData =
     tags
     ->Array.map(tag => {
       let moduleName = CodegenUtils.toPascalCase(tag)
-      `import * as ${moduleName} from '${generatedModulePath}/${moduleName}.mjs';`
-    })
-    ->Array.join("\n")
-
-  let wrappers =
-    tags
-    ->Array.map(tag => {
-      let moduleName = CodegenUtils.toPascalCase(tag)
+      let importLine = `import * as ${moduleName} from '${generatedModulePath}/${moduleName}.mjs';`
       let methods =
         Dict.get(endpointsByTag, tag)
         ->Option.getOr([])
@@ -50,37 +29,36 @@ let generateWrapperMjs = (~endpoints, ~generatedModulePath) => {
             endpoint.method,
           )
           let hasRequestBody = endpoint.requestBody->Option.isSome
-          let bodyArg = hasRequestBody ? "body: request, " : ""
-          `
-            |  async ${functionName}(client${hasRequestBody ? ", request" : ""}) {
-            |    return ${moduleName}.${functionName}({
-            |      ${bodyArg}fetch: (url, method, body) => client._fetch(url, method, body)
-            |    });
-            |  },`
+          Handlebars.render(
+            Templates.wrapperMjsMethod,
+            {
+              "functionName": functionName,
+              "moduleName": moduleName,
+              "requestArg": hasRequestBody ? ", request" : "",
+              "bodyArg": hasRequestBody ? "body: request, " : "",
+            },
+          )
         })
         ->Array.join("\n")
-      `
-        |export const ${moduleName} = {
-        |${methods}
-        |};`
-    })
-    ->Array.join("\n\n")
 
-  `
-    |// Generated wrapper
-    |${imports}
-    |
-    |${misskeyClientJsCode}
-    |
-    |${wrappers}
-    |`->CodegenUtils.trimMargin
+      let namespace = Handlebars.render(
+        Templates.wrapperMjsNamespace,
+        {"moduleName": moduleName, "methods": methods},
+      )
+      {"importLine": importLine, "namespace": namespace}
+    })
+
+  Handlebars.render(
+    Templates.wrapperMjs,
+    {"tags": tagData, "clientCode": misskeyClientJsCode},
+  )
 }
 
 let generateWrapperDts = (~endpoints) => {
   let endpointsByTag = OpenAPIParser.groupByTag(endpoints)
   let tags = Dict.keysToArray(endpointsByTag)
 
-  let imports =
+  let tagData =
     tags
     ->Array.map(tag => {
       let moduleName = CodegenUtils.toPascalCase(tag)
@@ -98,16 +76,8 @@ let generateWrapperDts = (~endpoints) => {
           }
         })
         ->Array.join("\n")
-      `import type {
-${typesToImport}
-} from '../types/${moduleName}.d.ts';`
-    })
-    ->Array.join("\n")
+      let importBlock = `import type {\n${typesToImport}\n} from '../types/${moduleName}.d.ts';`
 
-  let namespaces =
-    tags
-    ->Array.map(tag => {
-      let moduleName = CodegenUtils.toPascalCase(tag)
       let functions =
         Dict.get(endpointsByTag, tag)
         ->Option.getOr([])
@@ -118,35 +88,40 @@ ${typesToImport}
             endpoint.method,
           )
           let pascalName = CodegenUtils.toPascalCase(functionName)
-          let docComment = endpoint.summary->Option.mapOr("", summary => {
-            let descriptionPart = endpoint.description->Option.mapOr("", description =>
-              description == summary ? "" : " - " ++ description
-            )
-            `  /** ${summary}${descriptionPart} */\n`
-          })
+          let docComment = switch (endpoint.summary, endpoint.description) {
+          | (None, None) => ""
+          | (Some(summary), None) => `  /** ${summary} */\n`
+          | (None, Some(desc)) => {
+              let lines = desc->String.split("\n")->Array.map(line => line == "" ? "   *" : `   * ${line}`)
+              `  /**\n${lines->Array.join("\n")}\n   */\n`
+            }
+          | (Some(summary), Some(desc)) if summary == desc => `  /** ${summary} */\n`
+          | (Some(summary), Some(desc)) => {
+              let descLines = desc->String.split("\n")->Array.map(line => line == "" ? "   *" : `   * ${line}`)
+              `  /**\n   * ${summary}\n   *\n${descLines->Array.join("\n")}\n   */\n`
+            }
+          }
           let requestParam = endpoint.requestBody->Option.isSome ? `, request: ${pascalName}Request` : ""
-          `${docComment}  export function ${functionName}(client: MisskeyClient${requestParam}): Promise<${pascalName}Response>;`
+          Handlebars.render(
+            Templates.wrapperDtsFunction,
+            {
+              "docComment": docComment,
+              "functionName": functionName,
+              "requestParam": requestParam,
+              "pascalName": pascalName,
+            },
+          )
         })
         ->Array.join("\n")
-      `
-        |export namespace ${moduleName} {
-        |${functions}
-        |}`
-    })
-    ->Array.join("\n\n")
 
-  `
-    |// Generated TypeScript definitions for wrapper
-    |${imports}
-    |
-    |export class MisskeyClient {
-    |  constructor(baseUrl: string, token?: string);
-    |  readonly baseUrl: string;
-    |  readonly token?: string;
-    |}
-    |
-    |${namespaces}
-    |`->CodegenUtils.trimMargin
+      let namespace = Handlebars.render(
+        Templates.wrapperDtsNamespace,
+        {"moduleName": moduleName, "functions": functions},
+      )
+      {"importBlock": importBlock, "namespace": namespace}
+    })
+
+  Handlebars.render(Templates.wrapperDts, {"tags": tagData})
 }
 
 let generate = (~endpoints, ~outputDir, ~generatedModulePath="../generated") => {

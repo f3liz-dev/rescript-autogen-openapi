@@ -63,19 +63,22 @@ let generateTagModuleFile = (
     ->Array.join("\n\n")
 
   if wrapInModule {
-    `
-      |${header->String.trimEnd}
-      |
-      |module ${moduleName} = {
-      |${body->CodegenUtils.indent(2)}
-      |}
-      |`->CodegenUtils.trimMargin
+    Handlebars.render(
+      Templates.moduleWrapped,
+      {
+        "header": header->String.trimEnd,
+        "moduleName": moduleName,
+        "body": body->CodegenUtils.indent(2),
+      },
+    )
   } else {
-    `
-      |${header->String.trimEnd}
-      |
-      |${body}
-      |`->CodegenUtils.trimMargin
+    Handlebars.render(
+      Templates.moduleUnwrapped,
+      {
+        "header": header->String.trimEnd,
+        "body": body,
+      },
+    )
   }
 }
 
@@ -96,22 +99,19 @@ let generateAllTagModules = (
 
 let generateIndexModule = (~tags, ~moduleName="API") => {
   let header = CodegenUtils.generateFileHeader(~description="Main API module index")
-  let modules =
+  let tagData =
     tags
     ->Array.toSorted(String.compare)
-    ->Array.map(tag => {
-      let m = CodegenUtils.toPascalCase(tag)
-      `  module ${m} = ${m}`
-    })
-    ->Array.join("\n")
+    ->Array.map(tag => {"modulePascal": CodegenUtils.toPascalCase(tag)})
 
-  `
-    |${header->String.trimEnd}
-    |
-    |module ${moduleName} = {
-    |${modules}
-    |}
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(
+    Templates.indexModule,
+    {
+      "header": header->String.trimEnd,
+      "moduleName": moduleName,
+      "tags": tagData,
+    },
+  )
 }
 
 let generateFlatModuleCode = (~moduleName, ~endpoints, ~overrideDir=?) => {
@@ -127,13 +127,14 @@ let generateFlatModuleCode = (~moduleName, ~endpoints, ~overrideDir=?) => {
     )
     ->Array.join("\n\n")
 
-  `
-    |${header->String.trimEnd}
-    |
-    |module ${moduleName} = {
-    |${body}
-    |}
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(
+    Templates.moduleWrapped,
+    {
+      "header": header->String.trimEnd,
+      "moduleName": moduleName,
+      "body": body,
+    },
+  )
 }
 
 let internalGenerateIntegratedModule = (
@@ -220,13 +221,14 @@ let generateCombinedModule = (
     ~includeHeader=false,
   )
   
-  `
-    |${header->String.trimEnd}
-    |
-    |${shared}
-    |
-    |${extension}
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(
+    Templates.combinedModule,
+    {
+      "header": header->String.trimEnd,
+      "shared": shared,
+      "extension": extension,
+    },
+  )
 }
 
 let generateTagModuleFiles = (~endpoints, ~outputDir, ~wrapInModule=false, ~overrideDir=?) => {

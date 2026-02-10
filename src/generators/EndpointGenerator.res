@@ -85,21 +85,23 @@ let generateEndpointFunction = (endpoint: endpoint, ~overrideDir=?, ~moduleName=
     (),
   )
   
-  let code = `
-    |${docComment->String.trimEnd}
-    |let ${functionName} = (${bodyParam}${paramSep}~fetch: ${CodegenUtils.fetchTypeSignature}): promise<${functionName}Response> => {
-    |${bodyValueConversion}
-    |  fetch(
-    |    ~url="${endpoint.path}",
-    |    ~method_="${endpoint.method->String.toUpperCase}",
-    |    ~body=${hasRequestBody ? "Some(jsonBody)" : "None"},
-    |  )->Promise.then(response => {
-    |${responseHandling}
-    |    ->Promise.resolve
-    |  })
-    |}`
+  let code = Handlebars.render(
+    Templates.endpointFunction,
+    {
+      "docComment": docComment,
+      "functionName": functionName,
+      "bodyParam": bodyParam,
+      "paramSep": paramSep,
+      "fetchTypeSignature": CodegenUtils.fetchTypeSignature,
+      "bodyValueConversion": bodyValueConversion,
+      "path": endpoint.path,
+      "methodUpper": endpoint.method->String.toUpperCase,
+      "bodyArg": hasRequestBody ? "Some(jsonBody)" : "None",
+      "responseHandling": responseHandling,
+    },
+  )
   
-  code->CodegenUtils.trimMargin
+  code
 }
 
 let generateEndpointCode = (endpoint, ~overrideDir=?, ~moduleName=?, ~modulePrefix="") => {
@@ -143,13 +145,14 @@ let generateEndpointCode = (endpoint, ~overrideDir=?, ~moduleName=?, ~modulePref
 let generateEndpointModule = (~endpoint, ~modulePrefix="") => {
   let functionName = CodegenUtils.generateOperationName(endpoint.operationId, endpoint.path, endpoint.method)
   let header = CodegenUtils.generateFileHeader(~description=endpoint.summary->Option.getOr(`API: ${endpoint.path}`))
-  `
-    |${header->String.trimEnd}
-    |
-    |module ${CodegenUtils.toPascalCase(functionName)} = {
-    |${generateEndpointCode(endpoint, ~modulePrefix)->CodegenUtils.indent(2)}
-    |}
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(
+    Templates.moduleWrapped,
+    {
+      "header": header->String.trimEnd,
+      "moduleName": CodegenUtils.toPascalCase(functionName),
+      "body": generateEndpointCode(endpoint, ~modulePrefix)->CodegenUtils.indent(2),
+    },
+  )
 }
 
 let generateEndpointsModule = (~moduleName, ~endpoints, ~description=?, ~overrideDir=?, ~modulePrefix="") => {
@@ -159,13 +162,14 @@ let generateEndpointsModule = (~moduleName, ~endpoints, ~description=?, ~overrid
     ->Array.map(ep => generateEndpointCode(ep, ~overrideDir?, ~moduleName, ~modulePrefix)->CodegenUtils.indent(2))
     ->Array.join("\n\n")
 
-  `
-    |${header->String.trimEnd}
-    |
-    |module ${moduleName} = {
-    |${body}
-    |}
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(
+    Templates.moduleWrapped,
+    {
+      "header": header->String.trimEnd,
+      "moduleName": moduleName,
+      "body": body,
+    },
+  )
 }
 
 let generateEndpointSignature = (endpoint) => {

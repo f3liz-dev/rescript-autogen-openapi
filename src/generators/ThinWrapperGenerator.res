@@ -3,23 +3,14 @@
 // ThinWrapperGenerator.res - Generate ReScript thin wrappers with pipe-first ergonomics
 open Types
 
-let clientTypeCode = `
-  |type client = {
-  |  baseUrl: string,
-  |  token: option<string>,
-  |  fetch: ${CodegenUtils.fetchTypeSignature},
-  |}
-  |`->CodegenUtils.trimMargin
+let clientTypeCode =
+  Handlebars.render(Templates.clientType, {"fetchTypeSignature": CodegenUtils.fetchTypeSignature})
 
 let generateConnectFunction = (title) =>
-  `
-    |/** Create a client for ${title} */
-    |let connect = (~baseUrl: string, ~token: option<string>=?, ~fetch: ${CodegenUtils.fetchTypeSignature}, ()): client => {
-    |  baseUrl,
-    |  token,
-    |  fetch,
-    |}
-    |`->CodegenUtils.trimMargin
+  Handlebars.render(
+    Templates.connectFunction,
+    {"title": title, "fetchTypeSignature": CodegenUtils.fetchTypeSignature},
+  )
 
 let generateWrapperFunction = (~endpoint: endpoint, ~generatedModuleName: string) => {
   let operationName = CodegenUtils.generateOperationName(
@@ -41,8 +32,16 @@ let generateWrapperFunction = (~endpoint: endpoint, ~generatedModuleName: string
 
   let callArguments = hasRequestBody ? "~body=request, " : ""
 
-  `${docComment}  ${signature}: promise<${generatedModuleName}.${operationName}Response> => 
-    ${generatedModuleName}.${operationName}(${callArguments}~fetch=client.fetch)`
+  Handlebars.render(
+    Templates.wrapperFunction,
+    {
+      "docComment": docComment,
+      "signature": signature,
+      "generatedModuleName": generatedModuleName,
+      "operationName": operationName,
+      "callArguments": callArguments,
+    },
+  )
 }
 
 let generateWrapper = (
@@ -109,13 +108,14 @@ let generateWrapper = (
     })
     ->Array.join("\n\n")
 
-  let fileContent = `// Generated thin wrapper
-
-${clientTypeCode}
-
-${generateConnectFunction(spec.info.title)}
-
-${modulesCode}`
+  let fileContent = Handlebars.render(
+    Templates.wrapperFile,
+    {
+      "clientTypeCode": clientTypeCode,
+      "connectFunctionCode": generateConnectFunction(spec.info.title),
+      "modulesCode": modulesCode,
+    },
+  )
 
   Pipeline.fromFilesAndWarnings(
     [{path: FileSystem.makePath(outputDir, `${wrapperModuleName}.res`), content: fileContent}],
