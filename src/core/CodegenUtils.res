@@ -48,6 +48,23 @@ let escapeString = (str: string): string =>
   ->String.replaceAll("\n", "\\n")->String.replaceAll("\r", "\\r")
   ->String.replaceAll("\t", "\\t")
 
+// Escape Regex Pattern (escape unescaped slashes, then escape string)
+let escapeRegexPattern = (str: string): string => {
+  let withEscapedSlashes = %raw(`
+    function(s) {
+      return s.replace(/(\\*)(\/)/g, function(match, backslashes, slash) {
+        if (backslashes.length % 2 === 0) {
+          return backslashes + '\\\\' + slash;
+        } else {
+          return match;
+        }
+      });
+    }
+  `)(str)
+  
+  escapeString(withEscapedSlashes)
+}
+
 // Generate file header
 let generateFileHeader = (~description: string): string =>
   `// ${description}
