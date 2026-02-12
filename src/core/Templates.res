@@ -25,16 +25,14 @@ let docComment = `{{#if summary}}// {{{summary}}}
 
 // === EndpointGenerator ===
 
-let endpointFunction = `{{{docComment}}}let {{{functionName}}} = ({{{bodyParam}}}{{{paramSep}}}~fetch: {{{fetchTypeSignature}}}): promise<{{{functionName}}}Response> => {
+let endpointFunction = `{{{docComment}}}let {{{functionName}}} = async ({{{bodyParam}}}{{{paramSep}}}~fetch: {{{fetchTypeSignature}}}): {{{functionName}}}Response => {
 {{{bodyValueConversion}}}
-  fetch(
+  let response = await fetch(
     ~url="{{{path}}}",
     ~method_="{{{methodUpper}}}",
     ~body={{{bodyArg}}},
-  )->Promise.then(response => {
+  )
 {{{responseHandling}}}
-    ->Promise.resolve
-  })
 }`
 
 let moduleWrapped = `{{{header}}}

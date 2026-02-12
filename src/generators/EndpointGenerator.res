@@ -53,9 +53,9 @@ let generateEndpointFunction = (endpoint: endpoint, ~overrideDir=?, ~moduleName=
     ->Array.get(0)
     
   let responseHandling = successResponse->Option.mapOr("  response", response =>
-    response.content->Option.mapOr("  let _ = response\n  ()", content =>
+    response.content->Option.mapOr("  let _ = response", content =>
       Dict.toArray(content)->Array.length > 0
-        ? `  let value = response->S.parseOrThrow(${functionName}ResponseSchema)\n  value`
+        ? `  response->S.parseOrThrow(${functionName}ResponseSchema)`
         : "  response"
     )
   )
